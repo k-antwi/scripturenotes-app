@@ -52,4 +52,32 @@ export const BookmarkAPI = {
   destroy: (id) => api.delete(`/api/bookmarks/${id}`)
 }
 
+// --- Notebooks ----------------------------------------------------------------
+export const NotebookAPI = {
+  list: () => api.get('/api/notebooks'),
+  create: (payload) => api.post('/api/notebooks', payload),
+  show: (id) => api.get(`/api/notebooks/${id}`),
+  update: (id, payload) => api.put(`/api/notebooks/${id}`, payload),
+  destroy: (id) => api.delete(`/api/notebooks/${id}`),
+  addAnnotation: (notebookId, annotationId) =>
+    api.post(`/api/notebooks/${notebookId}/annotations/${annotationId}`),
+  removeAnnotation: (notebookId, annotationId) =>
+    api.delete(`/api/notebooks/${notebookId}/annotations/${annotationId}`)
+}
+
+// --- Custom Notes (user commentary) ------------------------------------------
+export const CustomNoteAPI = {
+  list: (params) => api.get('/api/custom-notes', { params }),
+  create: (payload) => api.post('/api/custom-notes', payload),
+  update: (id, payload) => api.put(`/api/custom-notes/${id}`, payload),
+  destroy: (id) => api.delete(`/api/custom-notes/${id}`)
+}
+
+// --- Study Sessions ----------------------------------------------------------
+export const StudySessionAPI = {
+  list: () => api.get('/api/study-sessions'),
+  start: (payload) => api.post('/api/study-sessions', payload),
+  heartbeat: (id) => api.patch(`/api/study-sessions/${id}`)
+}
+
 export default api

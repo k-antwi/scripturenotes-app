@@ -127,36 +127,41 @@ onUnmounted(() => resizeObserver.disconnect())
 function onPointerUp(evt) {
   // Ignore if this came from a canvas pointer-down (pen mode)
   if (tool.activeTool === TOOLS.PEN) return
-  const sel = resolveSelection()
-  if (!sel) return
-  saveHighlight(sel)
+  // resolveSelection() returns one entry per verse touched by the drag —
+  // a selection almost never stays inside a single verse since verses
+  // render inline in one paragraph.
+  const selections = resolveSelection()
+  if (!selections) return
+  saveHighlight(selections)
 }
 
-async function saveHighlight(sel) {
+async function saveHighlight(selections) {
   const scrollTop = containerRef.value?.scrollTop ?? 0
   const scrollLeft = containerRef.value?.scrollLeft ?? 0
 
-  for (const rect of sel.rects) {
-    await AnnotationRepository.create({
-      userId: auth.user?.id ?? 'local',
-      book: sel.book,
-      chapter: sel.chapter,
-      verse: sel.verse,
-      type: tool.activeTool === TOOLS.UNDERLINE ? 'underline' : 'highlight',
-      colour: tool.activeColour,
-      data: {
-        charStart: sel.charStart,
-        charEnd: sel.charEnd,
-        // Offset by scroll so the highlight div renders in the right place
-        rect: {
-          x: rect.x + scrollLeft,
-          y: rect.y + scrollTop,
-          width: rect.width,
-          height: rect.height
-        },
-        opacity: tool.activeTool === TOOLS.HIGHLIGHTER ? 0.35 : 1
-      }
-    })
+  for (const sel of selections) {
+    for (const rect of sel.rects) {
+      await AnnotationRepository.create({
+        userId: auth.user?.id ?? 'local',
+        book: sel.book,
+        chapter: sel.chapter,
+        verse: sel.verse,
+        type: tool.activeTool === TOOLS.UNDERLINE ? 'underline' : 'highlight',
+        colour: tool.activeColour,
+        data: {
+          charStart: sel.charStart,
+          charEnd: sel.charEnd,
+          // Offset by scroll so the highlight div renders in the right place
+          rect: {
+            x: rect.x + scrollLeft,
+            y: rect.y + scrollTop,
+            width: rect.width,
+            height: rect.height
+          },
+          opacity: tool.activeTool === TOOLS.HIGHLIGHTER ? 0.35 : 1
+        }
+      })
+    }
   }
 }
 

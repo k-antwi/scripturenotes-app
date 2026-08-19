@@ -11,7 +11,8 @@
     "cap:sync": "npx cap sync",
     "cap:ios": "npm run build && npx cap sync ios && npx cap open ios",
     "cap:android": "npm run build && npx cap sync android && npx cap open android",
-    "lint": "eslint src --ext .vue,.js"
+    "lint": "eslint src --ext .vue,.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@capacitor/android": "^6.0.0",
@@ -40,13 +41,16 @@
   "devDependencies": {
     "@capacitor/cli": "^2.5.0",
     "@vitejs/plugin-vue": "^5.0.4",
+    "@vue/test-utils": "^2.4.11",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
     "eslint-plugin-vue": "^9.24.0",
+    "jsdom": "^30.0.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "tailwindcss-animate": "^1.0.7",
     "vite": "^6.4.3",
-    "vite-plugin-pwa": "^1.3.0"
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.11"
   }
 }

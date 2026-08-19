@@ -91,9 +91,9 @@ vi.mock('@/components/annotation/AnnotationToolbar.vue', () => ({ default: Stub 
 vi.mock('@/components/annotation/NoteModal.vue', () => ({ default: Stub }))
 vi.mock('@/components/notes/StudyNotesPanel.vue', () => ({ default: Stub }))
 vi.mock('@/components/ui/sheet', () => ({ Sheet: Stub }))
-vi.mock('./VerseBlock.vue', () => ({ default: Stub }))
-vi.mock('./TranslationSelector.vue', () => ({ default: Stub }))
-vi.mock('./ChapterNav.vue', () => ({ default: Stub }))
+vi.mock('../VerseBlock.vue', () => ({ default: Stub }))
+vi.mock('../TranslationSelector.vue', () => ({ default: Stub }))
+vi.mock('../ChapterNav.vue', () => ({ default: Stub }))
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 describe('ScriptureReader — canvas sizing', () => {
