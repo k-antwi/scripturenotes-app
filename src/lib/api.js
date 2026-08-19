@@ -3,12 +3,22 @@ import { Preferences } from '@capacitor/preferences'
 
 /**
  * Laravel API client (PRD §7).
+ *
+ * baseURL strategy:
+ *  - Browser dev  (npm run dev)  → VITE_API_BASE_URL is empty; axios sends
+ *    relative paths (/api/…) which the Vite dev-server proxy forwards to the
+ *    Laravel host. No cross-origin request ever leaves the browser, so CORS
+ *    is a non-issue.
+ *  - Capacitor / production build → VITE_API_BASE_URL is set to the full API
+ *    host (e.g. http://localhost:58128 or https://api.biblestudy.app). The
+ *    Laravel CORS config must explicitly allow the app origin with credentials.
+ *
  * Web builds use Sanctum session cookies; Capacitor builds attach a bearer
- * token, since a native WebView can't share first-party session cookies
- * with the API host (PRD §3 Authentication).
+ * token, since the native WebView can't share first-party cookies with the
+ * API host (PRD §3 Authentication).
  */
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: import.meta.env.VITE_API_BASE_URL || '',
   withCredentials: true,
   headers: { Accept: 'application/json' }
 })

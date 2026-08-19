@@ -38,4 +38,14 @@ db.version(1).stores({
   syncQueue: '++id, entityType, entityLocalId, action, createdAt, attempts'
 })
 
+// v2: passages/studyNotes are now also keyed by `source` (laravel | freeuse)
+// so switching Bible sources (PRD §11.5 / frontend source toggle) never
+// serves cached text fetched from the other backend under the same
+// book+chapter+translation combination. Old v1 rows are simply superseded —
+// they're disposable cache, not user data — so no upgrade() migration is needed.
+db.version(2).stores({
+  passages: '[book+chapter+translation+source], fetchedAt',
+  studyNotes: '[book+chapter+translation+source]'
+})
+
 export default db
