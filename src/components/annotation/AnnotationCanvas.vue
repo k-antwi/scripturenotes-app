@@ -15,11 +15,14 @@ const props = defineProps({
   drawMode: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['pen-stroke-end', 'erase'])
+const emit = defineEmits(['pen-stroke-end', 'shape-stroke-end', 'erase'])
 
 const tool = useToolStore()
 const stageRef = ref(null)
-const { livePathData, startStroke, extendStroke, endStroke } = useAnnotationCanvas()
+const {
+  livePathData, startStroke, extendStroke, endStroke,
+  liveShapePoints, startShape, extendShape, endShape
+} = useAnnotationCanvas()
 
 const highlightAnnotations = computed(() =>
   props.annotations.filter((a) => a.type === 'highlight' || a.type === 'underline')
@@ -40,22 +43,36 @@ function getNativeCoords(konvaEvt) {
 }
 
 function onPointerDown(konvaEvt) {
-  if (!props.drawMode || tool.activeTool !== TOOLS.PEN) return
+  if (!props.drawMode) return
   const coords = getNativeCoords(konvaEvt)
-  // FIX: pass a synthetic event-like object + the stage's container element
-  startStroke(coords, stageRef.value.getStage().container())
+  const container = stageRef.value.getStage().container()
+  if (tool.activeTool === TOOLS.PEN) {
+    startStroke(coords, container)
+  } else if (tool.activeTool === TOOLS.SHAPE) {
+    startShape(coords, container)
+  }
 }
 
 function onPointerMove(konvaEvt) {
-  if (!props.drawMode || tool.activeTool !== TOOLS.PEN) return
+  if (!props.drawMode) return
   const coords = getNativeCoords(konvaEvt)
-  extendStroke(coords, stageRef.value.getStage().container())
+  const container = stageRef.value.getStage().container()
+  if (tool.activeTool === TOOLS.PEN) {
+    extendStroke(coords, container)
+  } else if (tool.activeTool === TOOLS.SHAPE) {
+    extendShape(coords, container)
+  }
 }
 
 function onPointerUp() {
-  if (!props.drawMode || tool.activeTool !== TOOLS.PEN) return
-  const stroke = endStroke({ canvasWidth: props.width, canvasHeight: props.height })
-  if (stroke) emit('pen-stroke-end', stroke)
+  if (!props.drawMode) return
+  if (tool.activeTool === TOOLS.PEN) {
+    const stroke = endStroke({ canvasWidth: props.width, canvasHeight: props.height })
+    if (stroke) emit('pen-stroke-end', stroke)
+  } else if (tool.activeTool === TOOLS.SHAPE) {
+    const shape = endShape({ canvasWidth: props.width, canvasHeight: props.height })
+    if (shape) emit('shape-stroke-end', shape)
+  }
 }
 
 function onAnnotationClick(localId) {
@@ -158,10 +175,25 @@ function pointsToFlatArray(points) {
           }"
         />
 
-        <!-- Live in-progress stroke -->
+        <!-- Live in-progress pen stroke -->
         <v-path
           v-if="livePathData"
           :config="{ data: livePathData, fill: tool.activeColour, opacity: tool.opacity }"
+        />
+
+        <!-- Live in-progress freehand shape -->
+        <v-line
+          v-if="liveShapePoints.length > 1"
+          :config="{
+            points: pointsToFlatArray(liveShapePoints),
+            stroke: tool.activeColour,
+            strokeWidth: tool.strokeWidth,
+            tension: 0.4,
+            lineCap: 'round',
+            closed: true,
+            opacity: tool.opacity,
+            dash: [6, 4]
+          }"
         />
       </v-layer>
     </v-stage>

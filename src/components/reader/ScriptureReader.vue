@@ -74,8 +74,9 @@ async function load() {
   try {
     passage.value = await PassageRepository.get(props.book, props.chapter, translation.value)
     studyNotes.value = await PassageRepository.getNotes(props.book, props.chapter, translation.value)
-    await nextTick()
-    measureCanvas()
+    // measureCanvas() is NOT called here — containerRef is still null because
+    // `loading` is true and the content div is hidden behind v-else.
+    // The containerRef watcher below handles sizing once the div mounts.
   } catch (e) {
     error.value = 'Could not load this passage. Please check your connection.'
   } finally {
@@ -98,8 +99,18 @@ function measureCanvas() {
 }
 
 const resizeObserver = new ResizeObserver(measureCanvas)
-onMounted(() => {
-  if (containerRef.value) resizeObserver.observe(containerRef.value)
+
+// FIX: containerRef lives inside a v-else block that only renders once `loading`
+// is false. At onMounted, loading is still true so containerRef.value is null and
+// observe() is never called, leaving canvasSize at { width:0, height:0 }.
+// Watching containerRef directly ensures we start observing (and measure once)
+// the moment the element actually enters the DOM, regardless of when that happens.
+watch(containerRef, (el, prevEl) => {
+  if (prevEl) resizeObserver.unobserve(prevEl)
+  if (el) {
+    resizeObserver.observe(el)
+    measureCanvas()
+  }
 })
 onUnmounted(() => resizeObserver.disconnect())
 

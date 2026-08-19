@@ -7,9 +7,15 @@ export function useAnnotationCanvas() {
   const tool = useToolStore()
   const settings = useSettingsStore()
 
+  // ── Pen stroke state ──────────────────────────────────────────────────────
   const points = ref([])
   const isDrawing = ref(false)
   const livePathData = ref('')
+
+  // ── Shape (freehand lasso) state ──────────────────────────────────────────
+  const shapePoints = ref([])
+  const isDrawingShape = ref(false)
+  const liveShapePoints = ref([])
 
   // FIX: accept a coords object { clientX, clientY, pressure } instead of a
   // full PointerEvent — works for both mouse and touch (Konva wraps them
@@ -20,6 +26,12 @@ export function useAnnotationCanvas() {
     const y = coords.clientY - rect.top
     const pressure = coords.pressure > 0 ? coords.pressure : 0.5
     return [x, y, pressure]
+  }
+
+  // Returns just [x, y] — shape points don't need pressure.
+  function coordsToPoint(coords, canvasEl) {
+    const [x, y] = coordsToTriple(coords, canvasEl)
+    return [x, y]
   }
 
   function startStroke(coords, canvasEl) {
@@ -74,7 +86,55 @@ export function useAnnotationCanvas() {
     return outlineToSvgPath(outline)
   }
 
-  return { isDrawing, livePathData, startStroke, extendStroke, endStroke }
+  // ── Shape (freehand lasso) ────────────────────────────────────────────────
+  function startShape(coords, canvasEl) {
+    if (tool.activeTool !== TOOLS.SHAPE) return
+    isDrawingShape.value = true
+    const pt = coordsToPoint(coords, canvasEl)
+    shapePoints.value = [pt]
+    liveShapePoints.value = [pt]
+  }
+
+  function extendShape(coords, canvasEl) {
+    if (!isDrawingShape.value) return
+    const pt = coordsToPoint(coords, canvasEl)
+    shapePoints.value.push(pt)
+    // Spread to trigger Vue reactivity on the array reference
+    liveShapePoints.value = [...shapePoints.value]
+  }
+
+  function endShape({ canvasWidth, canvasHeight }) {
+    isDrawingShape.value = false
+    if (shapePoints.value.length < 3) {
+      shapePoints.value = []
+      liveShapePoints.value = []
+      return null
+    }
+
+    const annotation = {
+      type: 'shape',
+      colour: tool.activeColour,
+      opacity: tool.opacity,
+      data: {
+        shapeType: 'freehand',
+        points: shapePoints.value,
+        strokeWidth: tool.strokeWidth
+      },
+      canvasWidth,
+      canvasHeight
+    }
+
+    shapePoints.value = []
+    liveShapePoints.value = []
+    return annotation
+  }
+
+  return {
+    // pen
+    isDrawing, livePathData, startStroke, extendStroke, endStroke,
+    // shape
+    isDrawingShape, liveShapePoints, startShape, extendShape, endShape
+  }
 }
 
 function outlineToSvgPath(pts) {
