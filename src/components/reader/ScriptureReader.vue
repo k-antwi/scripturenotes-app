@@ -173,6 +173,19 @@ async function onPenStrokeEnd(stroke) {
   })
 }
 
+// ─── Shape stroke ─────────────────────────────────────────────────────────────
+async function onShapeStrokeEnd(shape) {
+  await AnnotationRepository.create({
+    userId: auth.user?.id ?? 'local',
+    book: props.book,
+    chapter: props.chapter,
+    verse: null,
+    type: 'shape',
+    colour: shape.colour,
+    data: shape
+  })
+}
+
 // ─── Eraser ───────────────────────────────────────────────────────────────────
 async function onErase(localId) {
   await AnnotationRepository.remove(localId)
@@ -302,6 +315,7 @@ const verses = computed(() => passage.value?.verses ?? [])
         class="absolute inset-0 z-10 pointer-events-none"
         :draw-mode="tool.activeTool === TOOLS.PEN || tool.activeTool === TOOLS.ERASER || tool.activeTool === TOOLS.SHAPE"
         @pen-stroke-end="onPenStrokeEnd"
+        @shape-stroke-end="onShapeStrokeEnd"
         @erase="onErase"
       />
     </div>

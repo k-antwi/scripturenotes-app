@@ -82,7 +82,7 @@ watch(() => tool.activeTool, (val) => {
           v-if="tool.activeTool === TOOLS.PEN"
           type="button"
           class="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-card shadow-md"
-          @click="strokeSheetOpen = true"
+          @click="strokeSheetOpen = true; expanded = false"
         >
           <Settings2 class="h-5 w-5 text-muted-foreground" />
         </button>

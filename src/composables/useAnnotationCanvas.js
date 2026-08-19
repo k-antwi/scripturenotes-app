@@ -76,7 +76,9 @@ export function useAnnotationCanvas() {
   function computePath() {
     if (points.value.length < 2) return ''
     const outline = getStroke(points.value, {
-      size: tool.strokeWidth * 4,
+      // Multiplier of 2 gives a range of 3px (fine) to 18px (brush) —
+      // enough contrast between settings without making "fine" look chunky.
+      size: tool.strokeWidth * 2,
       thinning: settings.penFeel.thinning,
       smoothing: settings.penFeel.smoothing,
       streamline: settings.penFeel.streamline,
