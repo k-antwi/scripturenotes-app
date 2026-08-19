@@ -37,6 +37,10 @@ export const AnnotationRepository = {
    */
   async create({ userId, book, chapter, verse, type, data, colour, isShared = false }) {
     const now = new Date().toISOString()
+    // IndexedDB's structured-clone algorithm rejects Vue 3 reactive Proxies.
+    // structuredClone also fails on them in Chromium, so we use a JSON
+    // round-trip which reliably strips every Proxy wrapper before Dexie writes.
+    const plainData = JSON.parse(JSON.stringify(data ?? null))
     const localId = await db.annotations.add({
       remoteId: null,
       userId,
@@ -44,7 +48,7 @@ export const AnnotationRepository = {
       chapter,
       verse: verse ?? null,
       type,
-      data,
+      data: plainData,
       colour,
       isShared,
       shareToken: null,
