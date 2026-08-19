@@ -44,6 +44,10 @@ function getNativeCoords(konvaEvt) {
 
 function onPointerDown(konvaEvt) {
   if (!props.drawMode) return
+  // Prevent the browser from scrolling or selecting text while drawing.
+  // Must be called on the native event (konvaEvt.evt), not the Konva wrapper —
+  // the Konva event object has no preventDefault(), which caused the TypeError.
+  konvaEvt.evt?.preventDefault?.()
   const coords = getNativeCoords(konvaEvt)
   const container = stageRef.value.getStage().container()
   if (tool.activeTool === TOOLS.PEN) {
@@ -55,6 +59,7 @@ function onPointerDown(konvaEvt) {
 
 function onPointerMove(konvaEvt) {
   if (!props.drawMode) return
+  konvaEvt.evt?.preventDefault?.()
   const coords = getNativeCoords(konvaEvt)
   const container = stageRef.value.getStage().container()
   if (tool.activeTool === TOOLS.PEN) {
@@ -128,8 +133,8 @@ function pointsToFlatArray(points) {
       @mousedown="onPointerDown"
       @mousemove="onPointerMove"
       @mouseup="onPointerUp"
-      @touchstart.prevent="onPointerDown"
-      @touchmove.prevent="onPointerMove"
+      @touchstart="onPointerDown"
+      @touchmove="onPointerMove"
       @touchend="onPointerUp"
     >
       <v-layer :config="{ y: -scrollTop }">

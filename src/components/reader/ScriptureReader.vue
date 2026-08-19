@@ -73,7 +73,6 @@ async function load() {
   error.value = null
   try {
     passage.value = await PassageRepository.get(props.book, props.chapter, translation.value)
-    studyNotes.value = await PassageRepository.getNotes(props.book, props.chapter, translation.value)
     // measureCanvas() is NOT called here — containerRef is still null because
     // `loading` is true and the content div is hidden behind v-else.
     // The containerRef watcher below handles sizing once the div mounts.
@@ -81,6 +80,13 @@ async function load() {
     error.value = 'Could not load this passage. Please check your connection.'
   } finally {
     loading.value = false
+  }
+  // Study notes are supplementary — fetch separately so a 404 or network error
+  // never prevents the passage itself from rendering.
+  try {
+    studyNotes.value = await PassageRepository.getNotes(props.book, props.chapter, translation.value)
+  } catch {
+    studyNotes.value = null
   }
 }
 

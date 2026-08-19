@@ -1,5 +1,5 @@
 /**
- * Unit tests for the shape-drawing additions in useAnnotationCanvas.
+ * Unit tests for useAnnotationCanvas — pen strokes, shape drawing, and regressions.
  *
  * Run with:  npx vitest run src/composables/__tests__/useAnnotationCanvas.test.js
  *
@@ -10,29 +10,30 @@ import { setActivePinia, createPinia } from 'pinia'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 vi.mock('perfect-freehand', () => ({
-  default: () => [[0, 0], [1, 1], [2, 2]]
+  default: () => [[0, 0], [10, 5], [20, 0]]
 }))
 
-vi.mock('@/stores/tool', () => {
-  const TOOLS = {
-    NONE: 'none',
-    HIGHLIGHTER: 'highlighter',
-    PEN: 'pen',
-    UNDERLINE: 'underline',
-    SHAPE: 'shape',
-    NOTE: 'note',
-    ERASER: 'eraser'
-  }
-  return {
-    TOOLS,
-    useToolStore: () => ({
-      activeTool: TOOLS.SHAPE,
-      activeColour: '#3B6FE0',
-      strokeWidth: 3,
-      opacity: 1
-    })
-  }
-})
+const TOOLS = {
+  NONE: 'none',
+  HIGHLIGHTER: 'highlighter',
+  PEN: 'pen',
+  UNDERLINE: 'underline',
+  SHAPE: 'shape',
+  NOTE: 'note',
+  ERASER: 'eraser'
+}
+
+// activeTool is mutated per describe block via the factory below
+let mockActiveTool = TOOLS.PEN
+vi.mock('@/stores/tool', () => ({
+  TOOLS,
+  useToolStore: () => ({
+    get activeTool() { return mockActiveTool },
+    activeColour: '#3B6FE0',
+    strokeWidth: 3,
+    opacity: 1
+  })
+}))
 
 vi.mock('@/stores/settings', () => ({
   useSettingsStore: () => ({
@@ -41,8 +42,8 @@ vi.mock('@/stores/settings', () => ({
 }))
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-/** Fake canvas element whose bounding rect starts at (10, 20). */
-function makeCanvas(left = 10, top = 20) {
+/** Fake canvas element whose bounding rect starts at (left, top). */
+function makeCanvas(left = 0, top = 0) {
   return { getBoundingClientRect: () => ({ left, top }) }
 }
 
@@ -50,16 +51,92 @@ function makeCoords(clientX, clientY, pressure = 0.5) {
   return { clientX, clientY, pressure }
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+async function freshComposable() {
+  setActivePinia(createPinia())
+  // vi.resetModules() ensures Vue refs are fresh for each test
+  vi.resetModules()
+  const mod = await import('../useAnnotationCanvas')
+  return mod.useAnnotationCanvas()
+}
+
+// ── Pen stroke tests ──────────────────────────────────────────────────────────
+describe('useAnnotationCanvas — pen strokes', () => {
+  beforeEach(() => { mockActiveTool = TOOLS.PEN })
+
+  it('startStroke initialises isDrawing and records first point', async () => {
+    const { startStroke, isDrawing, livePathData } = await freshComposable()
+    startStroke(makeCoords(10, 20), makeCanvas())
+    expect(isDrawing.value).toBe(true)
+    expect(livePathData.value).toBe('') // no path until extendStroke
+  })
+
+  it('extendStroke builds a live SVG path after two points', async () => {
+    const { startStroke, extendStroke, livePathData } = await freshComposable()
+    const canvas = makeCanvas()
+    startStroke(makeCoords(0, 0), canvas)
+    extendStroke(makeCoords(50, 50), canvas)
+    expect(livePathData.value.length).toBeGreaterThan(0)
+    expect(livePathData.value.startsWith('M')).toBe(true)
+  })
+
+  it('endStroke returns null and resets when fewer than 3 points', async () => {
+    const { startStroke, extendStroke, endStroke, livePathData } = await freshComposable()
+    const canvas = makeCanvas()
+    startStroke(makeCoords(0, 0), canvas)
+    extendStroke(makeCoords(10, 10), canvas)
+    const result = endStroke({ canvasWidth: 400, canvasHeight: 800 })
+    expect(result).toBeNull()
+    expect(livePathData.value).toBe('')
+  })
+
+  it('endStroke returns a well-formed pen annotation payload', async () => {
+    const { startStroke, extendStroke, endStroke } = await freshComposable()
+    const canvas = makeCanvas()
+    startStroke(makeCoords(0, 0), canvas)
+    extendStroke(makeCoords(20, 30), canvas)
+    extendStroke(makeCoords(40, 10), canvas)
+    const result = endStroke({ canvasWidth: 500, canvasHeight: 900 })
+
+    expect(result).not.toBeNull()
+    expect(result.type).toBe('pen')
+    expect(typeof result.svgPath).toBe('string')
+    expect(result.svgPath.startsWith('M')).toBe(true)
+    expect(result.canvasWidth).toBe(500)
+    expect(result.canvasHeight).toBe(900)
+  })
+
+  it('endStroke resets state so a second stroke starts clean', async () => {
+    const { startStroke, extendStroke, endStroke, livePathData } = await freshComposable()
+    const canvas = makeCanvas()
+    startStroke(makeCoords(0, 0), canvas)
+    extendStroke(makeCoords(10, 10), canvas)
+    extendStroke(makeCoords(20, 20), canvas)
+    endStroke({ canvasWidth: 400, canvasHeight: 800 })
+
+    expect(livePathData.value).toBe('')
+    // Starting a second stroke should not inherit previous points
+    startStroke(makeCoords(100, 100), canvas)
+    extendStroke(makeCoords(110, 110), canvas)
+    // Only 2 points → endStroke returns null (confirms no leftover points)
+    expect(endStroke({ canvasWidth: 400, canvasHeight: 800 })).toBeNull()
+  })
+
+  // ── REGRESSION: pen events ignored when activeTool is not PEN ─────────────
+  it('[regression] startStroke is a no-op when activeTool is not PEN', async () => {
+    mockActiveTool = TOOLS.SHAPE
+    const { startStroke, isDrawing } = await freshComposable()
+    startStroke(makeCoords(10, 10), makeCanvas())
+    expect(isDrawing.value).toBe(false)
+  })
+})
+
+// ── Shape drawing tests ───────────────────────────────────────────────────────
 describe('useAnnotationCanvas — shape drawing', () => {
   let startShape, extendShape, endShape, liveShapePoints
 
   beforeEach(async () => {
-    setActivePinia(createPinia())
-    // Re-import each test so Vue refs are fresh
-    const mod = await import('../useAnnotationCanvas')
-    ;({ startShape, extendShape, endShape, liveShapePoints } =
-      mod.useAnnotationCanvas())
+    mockActiveTool = TOOLS.SHAPE
+    ;({ startShape, extendShape, endShape, liveShapePoints } = await freshComposable())
   })
 
   it('startShape initialises liveShapePoints with the first point', () => {
@@ -126,5 +203,23 @@ describe('useAnnotationCanvas — shape drawing', () => {
     startShape(makeCoords(60, 80), canvas)
     // Expected: [60-10, 80-20] = [50, 60]
     expect(liveShapePoints.value[0]).toEqual([50, 60])
+  })
+
+  // ── REGRESSION: shape events ignored when activeTool is not SHAPE ──────────
+  it('[regression] startShape is a no-op when activeTool is not SHAPE', async () => {
+    mockActiveTool = TOOLS.PEN
+    ;({ startShape, liveShapePoints } = await freshComposable())
+    startShape(makeCoords(10, 10), makeCanvas())
+    expect(liveShapePoints.value).toHaveLength(0)
+  })
+
+  // ── REGRESSION: extendShape does not accumulate across separate gestures ───
+  it('[regression] extendShape called without a preceding startShape never accumulates', async () => {
+    extendShape(makeCoords(10, 10), makeCanvas())
+    extendShape(makeCoords(20, 20), makeCanvas())
+    extendShape(makeCoords(30, 30), makeCanvas())
+    expect(liveShapePoints.value).toHaveLength(0)
+    // endShape should return null — no orphaned points to persist
+    expect(endShape({ canvasWidth: 400, canvasHeight: 800 })).toBeNull()
   })
 })
