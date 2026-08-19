@@ -1,0 +1,52 @@
+{
+  "name": "bible-study-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Bible Study Annotation App — Mobile (Vue 3 + Capacitor)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npm run build && npx cap sync ios && npx cap open ios",
+    "cap:android": "npm run build && npx cap sync android && npx cap open android",
+    "lint": "eslint src --ext .vue,.js"
+  },
+  "dependencies": {
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0",
+    "pinia": "^2.1.7",
+    "pinia-plugin-persistedstate": "^3.2.1",
+    "axios": "^1.6.8",
+    "dexie": "^4.0.1",
+    "konva": "^9.3.6",
+    "vue-konva": "^3.0.2",
+    "perfect-freehand": "^1.2.0",
+    "reka-ui": "^1.0.0-alpha.8",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^2.2.2",
+    "lucide-vue-next": "^0.365.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/ios": "^6.0.0",
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/haptics": "^6.0.0",
+    "@capacitor/filesystem": "^6.0.0",
+    "@capacitor/preferences": "^6.0.0",
+    "@capacitor/network": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "vite": "^5.2.0",
+    "vite-plugin-pwa": "^0.19.8",
+    "@capacitor/cli": "^6.0.0",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3",
+    "tailwindcss-animate": "^1.0.7",
+    "eslint": "^8.57.0",
+    "eslint-plugin-vue": "^9.24.0"
+  }
+}

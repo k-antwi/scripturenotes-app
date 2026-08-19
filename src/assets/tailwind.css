@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Theme tokens — PRD §6.2
+  Light (default), Dark (#1F2937 bg), Sepia (warm off-white / brown).
+  Palette direction: ink-navy primary + gilded-gold / quiet-teal accents —
+  evokes a well-worn study Bible rather than a generic SaaS palette.
+*/
+@layer base {
+  :root {
+    --background: 42 38% 97%;        /* warm off-white parchment */
+    --foreground: 222 39% 15%;       /* near-ink navy text */
+
+    --card: 42 38% 99%;
+    --card-foreground: 222 39% 15%;
+
+    --popover: 42 38% 99%;
+    --popover-foreground: 222 39% 15%;
+
+    --primary: 222 45% 21%;          /* ink navy */
+    --primary-foreground: 42 38% 97%;
+
+    --secondary: 38 42% 92%;
+    --secondary-foreground: 222 39% 15%;
+
+    --accent: 39 55% 47%;            /* gilded gold */
+    --accent-foreground: 222 39% 15%;
+
+    --muted: 40 20% 91%;
+    --muted-foreground: 222 15% 40%;
+
+    --destructive: 4 66% 51%;
+    --destructive-foreground: 42 38% 97%;
+
+    --border: 40 20% 85%;
+    --input: 40 20% 85%;
+    --ring: 175 30% 32%;
+
+    --radius: 0.6rem;
+  }
+
+  .dark {
+    --background: 220 27% 13%;       /* #1F2937 */
+    --foreground: 40 20% 92%;
+
+    --card: 220 24% 17%;
+    --card-foreground: 40 20% 92%;
+
+    --popover: 220 24% 17%;
+    --popover-foreground: 40 20% 92%;
+
+    --primary: 39 55% 55%;           /* gold reads as primary accent on dark */
+    --primary-foreground: 222 39% 12%;
+
+    --secondary: 220 20% 22%;
+    --secondary-foreground: 40 20% 92%;
+
+    --accent: 175 30% 42%;
+    --accent-foreground: 220 27% 13%;
+
+    --muted: 220 18% 24%;
+    --muted-foreground: 220 10% 65%;
+
+    --destructive: 4 60% 55%;
+    --destructive-foreground: 40 20% 95%;
+
+    --border: 220 18% 26%;
+    --input: 220 18% 26%;
+    --ring: 39 55% 55%;
+  }
+
+  .sepia {
+    --background: 39 45% 90%;        /* warm sepia page */
+    --foreground: 24 35% 20%;        /* brown text */
+
+    --card: 39 45% 93%;
+    --card-foreground: 24 35% 20%;
+
+    --popover: 39 45% 93%;
+    --popover-foreground: 24 35% 20%;
+
+    --primary: 24 40% 26%;
+    --primary-foreground: 39 45% 95%;
+
+    --secondary: 36 35% 85%;
+    --secondary-foreground: 24 35% 20%;
+
+    --accent: 30 55% 42%;
+    --accent-foreground: 39 45% 95%;
+
+    --muted: 36 30% 83%;
+    --muted-foreground: 24 20% 38%;
+
+    --destructive: 4 55% 45%;
+    --destructive-foreground: 39 45% 95%;
+
+    --border: 36 30% 76%;
+    --input: 36 30% 76%;
+    --ring: 30 55% 42%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer utilities {
+  .scripture-text {
+    @apply font-scripture leading-relaxed;
+  }
+
+  /* Safe-area padding for notched devices via Capacitor WebView */
+  .safe-top { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+}
