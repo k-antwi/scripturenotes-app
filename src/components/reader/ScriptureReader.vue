@@ -291,7 +291,7 @@ const verses = computed(() => passage.value?.verses ?? [])
             {{ passageReference }}
           </h1>
 
-          <p class="font-scripture break-inside-avoid">
+          <p class="font-scripture">
             <VerseBlock
               v-for="verse in verses"
               :key="verse.number"
