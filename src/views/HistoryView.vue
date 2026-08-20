@@ -14,6 +14,26 @@ const sessions = useObservable(
   []
 )
 
+/**
+ * One entry per (passageRef + calendar-day), keeping the most recent.
+ * Sessions are already sorted newest-first, so the first occurrence of each
+ * key wins. This also guards against any legacy duplicate rows already in the
+ * local DB before the write-layer upsert was deployed.
+ */
+const dedupedSessions = computed(() => {
+  const seen = new Set()
+  const result = []
+  for (const s of (sessions.value ?? [])) {
+    const day = typeof s.startedAt === 'string' ? s.startedAt.slice(0, 10) : ''
+    const key = `${day}|${s.passageRef ?? ''}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(s)
+    }
+  }
+  return result
+})
+
 const allAnnotations = useObservable(
   () => liveQuery(() => db.annotations.filter((a) => !a.deletedAt).toArray()),
   []
@@ -62,13 +82,13 @@ function navigate(s) {
     </div>
 
     <div class="flex-1 overflow-y-auto">
-      <div v-if="sessions.length === 0" class="flex flex-col items-center py-16 text-muted-foreground">
+      <div v-if="dedupedSessions.length === 0" class="flex flex-col items-center py-16 text-muted-foreground">
         <Clock class="h-10 w-10 opacity-30 mb-3" />
         <p class="text-sm">No sessions recorded yet</p>
       </div>
 
       <button
-        v-for="s in sessions"
+        v-for="s in dedupedSessions"
         :key="s.localId"
         type="button"
         class="flex w-full items-center gap-4 border-b border-border/60 px-4 py-3.5 text-left active:bg-secondary"

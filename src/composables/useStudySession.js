@@ -13,6 +13,23 @@ export function useStudySession(passageRefGetter) {
 
   async function startSession(passageRef) {
     const now = new Date().toISOString()
+    const today = now.slice(0, 10) // 'YYYY-MM-DD'
+
+    // Reuse an existing session for the same passage opened today so that
+    // revisiting the same chapter multiple times within a day produces only
+    // one History entry instead of a growing list of duplicates.
+    const existing = await db.studySessions
+      .where('passageRef')
+      .equals(passageRef)
+      .filter((s) => typeof s.startedAt === 'string' && s.startedAt.slice(0, 10) === today)
+      .first()
+
+    if (existing) {
+      sessionId.value = existing.localId
+      await db.studySessions.update(existing.localId, { lastActiveAt: now })
+      return
+    }
+
     sessionId.value = await db.studySessions.add({
       remoteId: null,
       userId: auth.user?.id ?? 'local',
