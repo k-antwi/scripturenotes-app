@@ -139,6 +139,22 @@ export function useAnnotationCanvas() {
   }
 }
 
+/**
+ * Pure hit-test helper — returns the first highlight/underline annotation
+ * whose stored rect contains the point (x, y) in scroll-space, or null.
+ *
+ * Exported so it can be unit-tested independently of the canvas component.
+ */
+export function hitTestHighlight(annotations, x, y) {
+  if (!Array.isArray(annotations)) return null
+  return annotations.find((a) => {
+    if (a.type !== 'highlight' && a.type !== 'underline') return false
+    const r = a.data?.rect
+    if (!r) return false
+    return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height
+  }) ?? null
+}
+
 function outlineToSvgPath(pts) {
   if (!pts.length) return ''
   let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} `

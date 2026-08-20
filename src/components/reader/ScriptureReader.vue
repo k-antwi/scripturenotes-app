@@ -81,7 +81,9 @@ const translation = ref(settings.defaultTranslation)
 const showComparison = ref(false)
 const secondaryTranslation = ref(null)
 const secondaryPassage = ref(null)
-const primaryScrollRef = ref(null)
+// FIX: primaryScrollRef removed — the primary scroll element is always
+// containerRef; using a separate ref caused a dual-ref conflict in the
+// template where only the dynamic :ref took effect.
 const secondaryScrollRef = ref(null)
 let syncingScroll = false
 
@@ -115,8 +117,10 @@ async function loadSecondary() {
 
 // Verse-level sync scroll (PRD §5.1.2)
 function onPrimaryScroll() {
-  if (syncingScroll || !secondaryScrollRef.value || !primaryScrollRef.value) return
-  const ratio = primaryScrollRef.value.scrollTop / (primaryScrollRef.value.scrollHeight - primaryScrollRef.value.clientHeight || 1)
+  // FIX: use containerRef (always the primary scrollable div) instead of
+  // the removed primaryScrollRef.
+  if (syncingScroll || !secondaryScrollRef.value || !containerRef.value) return
+  const ratio = containerRef.value.scrollTop / (containerRef.value.scrollHeight - containerRef.value.clientHeight || 1)
   syncingScroll = true
   secondaryScrollRef.value.scrollTop = ratio * (secondaryScrollRef.value.scrollHeight - secondaryScrollRef.value.clientHeight)
   syncingScroll = false
@@ -453,10 +457,11 @@ async function handleExportPdf() {
         <div
           ref="containerRef"
           class="h-full overflow-y-auto"
-          :ref="showComparison ? 'primaryScrollRef' : 'containerRef'"
           @scroll="showComparison ? onPrimaryScroll() : onScroll()"
           :class="[
-            tool.activeTool === TOOLS.PEN || tool.activeTool === TOOLS.ERASER
+            tool.activeTool === TOOLS.PEN ||
+            tool.activeTool === TOOLS.ERASER ||
+            tool.activeTool === TOOLS.SHAPE
               ? 'select-none'
               : ''
           ]"

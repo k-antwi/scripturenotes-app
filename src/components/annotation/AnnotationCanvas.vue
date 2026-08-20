@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useToolStore, TOOLS } from '@/stores/tool'
-import { useAnnotationCanvas } from '@/composables/useAnnotationCanvas'
+import { useAnnotationCanvas, hitTestHighlight } from '@/composables/useAnnotationCanvas'
 
 const props = defineProps({
   annotations: { type: Array, required: true },
@@ -16,6 +16,24 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['pen-stroke-end', 'shape-stroke-end', 'erase'])
+
+// ─── Highlight hit-test for eraser ────────────────────────────────────────────
+// When the user taps with the eraser on the Konva stage background, check
+// whether the tap position overlaps any highlight/underline annotation and
+// emit 'erase' for the first match.  Highlights are rendered as HTML divs
+// (not Konva shapes) so they need their own hit-testing path.
+function onBackgroundClick(konvaEvt) {
+  if (tool.activeTool !== TOOLS.ERASER) return
+  const coords = getNativeCoords(konvaEvt)
+  const container = stageRef.value.getStage().container()
+  const rect = container.getBoundingClientRect()
+  const x = coords.clientX - rect.left
+  // Add scrollTop back because stored rect coords are in full-scroll space
+  const y = coords.clientY - rect.top + props.scrollTop
+
+  const target = hitTestHighlight(props.annotations, x, y)
+  if (target) emit('erase', target.localId)
+}
 
 const tool = useToolStore()
 const stageRef = ref(null)
@@ -124,12 +142,19 @@ function pointsToFlatArray(points) {
       Drawing layer — Konva stage for pen strokes & shapes.
       The stage itself is viewport-sized; we translate the Konva layer
       by -scrollTop so strokes appear at their original drawn position.
+
+      FIX: pointer-events must be 'none' when not in drawMode so the Konva
+      <canvas> element doesn't swallow touch/mouse events needed by the
+      highlight, underline and note tools.  CSS pointer-events:none on the
+      parent div is NOT enough — the <canvas> child has pointer-events:auto
+      by default and would still intercept events.
     -->
     <v-stage
       v-if="drawMode || drawingAnnotations.length > 0"
       ref="stageRef"
       :config="{ width, height: height }"
       class="absolute inset-0"
+      :style="{ pointerEvents: drawMode ? 'auto' : 'none' }"
       @mousedown="onPointerDown"
       @mousemove="onPointerMove"
       @mouseup="onPointerUp"
@@ -138,6 +163,18 @@ function pointsToFlatArray(points) {
       @touchend="onPointerUp"
     >
       <v-layer :config="{ y: -scrollTop }">
+        <!--
+          Background rect — catches eraser taps on the empty stage area so
+          highlights / underlines (which are HTML divs, not Konva shapes) can
+          also be erased via hit-testing in onBackgroundClick.
+        -->
+        <v-rect
+          v-if="tool.activeTool === TOOLS.ERASER"
+          :config="{ x: 0, y: scrollTop, width: props.width, height: props.height, fill: 'transparent', listening: true }"
+          @click="onBackgroundClick"
+          @tap="onBackgroundClick"
+        />
+
         <!-- Saved pen strokes -->
         <v-path
           v-for="a in drawingAnnotations.filter((d) => d.type === 'pen')"
@@ -152,7 +189,7 @@ function pointsToFlatArray(points) {
           @tap="() => onAnnotationClick(a.localId)"
         />
 
-        <!-- Saved freehand shapes -->
+        <!-- Saved freehand shapes — FIX: added listening + erase handlers -->
         <v-line
           v-for="a in drawingAnnotations.filter((d) => d.type === 'shape' && d.data.shapeType === 'freehand')"
           :key="a.localId"
@@ -162,11 +199,14 @@ function pointsToFlatArray(points) {
             strokeWidth: a.data.strokeWidth ?? 3,
             tension: 0.4,
             lineCap: 'round',
-            closed: true
+            closed: true,
+            listening: tool.activeTool === TOOLS.ERASER
           }"
+          @click="() => onAnnotationClick(a.localId)"
+          @tap="() => onAnnotationClick(a.localId)"
         />
 
-        <!-- Saved ellipses -->
+        <!-- Saved ellipses — FIX: added listening + erase handlers -->
         <v-ellipse
           v-for="a in drawingAnnotations.filter((d) => d.type === 'shape' && d.data.shapeType === 'ellipse')"
           :key="a.localId"
@@ -176,8 +216,11 @@ function pointsToFlatArray(points) {
             radiusX: a.data.boundingBox.width / 2,
             radiusY: a.data.boundingBox.height / 2,
             stroke: a.colour,
-            strokeWidth: 2.5
+            strokeWidth: 2.5,
+            listening: tool.activeTool === TOOLS.ERASER
           }"
+          @click="() => onAnnotationClick(a.localId)"
+          @tap="() => onAnnotationClick(a.localId)"
         />
 
         <!-- Live in-progress pen stroke -->
