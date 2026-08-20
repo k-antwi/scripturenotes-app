@@ -47,6 +47,16 @@ export const AnnotationAPI = {
   sync: (mutations) => api.post('/api/annotations/sync', { mutations })
 }
 
+// --- §11.2 Annotation Sharing ------------------------------------------------
+export const ShareAPI = {
+  /** Generate (or fetch existing) share token for an annotation. */
+  share: (id) => api.post(`/api/annotations/${id}/share`),
+  /** Revoke public access for an annotation. */
+  revoke: (id) => api.delete(`/api/annotations/${id}/share`),
+  /** Fetch a publicly-shared annotation by its token (no auth required). */
+  getShared: (token) => api.get(`/api/shared/${token}`)
+}
+
 // --- §7.3 Passages (cache proxy) --------------------------------------------
 export const PassageAPI = {
   get: (book, chapter, translation) =>

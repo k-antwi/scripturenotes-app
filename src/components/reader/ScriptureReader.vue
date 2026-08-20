@@ -7,6 +7,8 @@ import AnnotationRepository from '@/lib/annotationRepository'
 import { useAuthStore } from '@/stores/auth'
 import { useSettingsStore } from '@/stores/settings'
 import { useToolStore, TOOLS } from '@/stores/tool'
+import { useUndoRedoStore } from '@/stores/undoRedo'
+import { usePdfExport } from '@/composables/usePdfExport'
 import { useTextSelection } from '@/composables/useTextSelection'
 import { useObservable } from '@/composables/useObservable'
 import { useStudySession } from '@/composables/useStudySession'
@@ -18,6 +20,7 @@ import AnnotationToolbar from '@/components/annotation/AnnotationToolbar.vue'
 import NoteModal from '@/components/annotation/NoteModal.vue'
 import StudyNotesPanel from '@/components/notes/StudyNotesPanel.vue'
 import { Sheet } from '@/components/ui/sheet'
+import { Columns2, Undo2, Redo2, Printer } from 'lucide-vue-next'
 
 const props = defineProps({
   book: { type: String, required: true },
@@ -27,6 +30,8 @@ const props = defineProps({
 const auth = useAuthStore()
 const settings = useSettingsStore()
 const tool = useToolStore()
+const undoRedo = useUndoRedoStore()
+const { exportToPdf } = usePdfExport()
 
 // containerRef is the scrollable text div — canvas is sized to match it
 const containerRef = ref(null)
@@ -37,6 +42,60 @@ const studyNotes = ref(null)
 const loading = ref(true)
 const error = ref(null)
 const translation = ref(settings.defaultTranslation)
+
+// ── Translation Comparison (PRD §5.1.2) ────────────────────────────────────
+const showComparison = ref(false)
+const secondaryTranslation = ref(null)
+const secondaryPassage = ref(null)
+const primaryScrollRef = ref(null)
+const secondaryScrollRef = ref(null)
+let syncingScroll = false
+
+// Populate secondary translation list — exclude the current primary translation
+const AVAILABLE_TRANSLATIONS = ['BSB', 'KJV', 'ASV', 'WEB', 'YLT']
+
+const secondaryTranslations = computed(() =>
+  AVAILABLE_TRANSLATIONS.filter((t) => t !== translation.value)
+)
+
+watch(showComparison, async (on) => {
+  if (!on) return
+  if (!secondaryTranslation.value) {
+    secondaryTranslation.value = secondaryTranslations.value[0]
+  }
+  await loadSecondary()
+})
+
+watch(secondaryTranslation, async (val) => {
+  if (val && showComparison.value) await loadSecondary()
+})
+
+async function loadSecondary() {
+  secondaryPassage.value = null
+  try {
+    secondaryPassage.value = await PassageRepository.get(props.book, props.chapter, secondaryTranslation.value)
+  } catch {
+    secondaryPassage.value = null
+  }
+}
+
+// Verse-level sync scroll (PRD §5.1.2)
+function onPrimaryScroll() {
+  if (syncingScroll || !secondaryScrollRef.value || !primaryScrollRef.value) return
+  const ratio = primaryScrollRef.value.scrollTop / (primaryScrollRef.value.scrollHeight - primaryScrollRef.value.clientHeight || 1)
+  syncingScroll = true
+  secondaryScrollRef.value.scrollTop = ratio * (secondaryScrollRef.value.scrollHeight - secondaryScrollRef.value.clientHeight)
+  syncingScroll = false
+  onScroll()
+}
+
+function onSecondaryScroll() {
+  if (syncingScroll || !primaryScrollRef.value || !secondaryScrollRef.value) return
+  const ratio = secondaryScrollRef.value.scrollTop / (secondaryScrollRef.value.scrollHeight - secondaryScrollRef.value.clientHeight || 1)
+  syncingScroll = true
+  primaryScrollRef.value.scrollTop = ratio * (primaryScrollRef.value.scrollHeight - primaryScrollRef.value.clientHeight)
+  syncingScroll = false
+}
 
 // Live annotations from Dexie — canvas re-renders on every write
 const annotations = useObservable(
@@ -71,31 +130,25 @@ function onScroll() {
 async function load() {
   loading.value = true
   error.value = null
+  undoRedo.clear()
   try {
     passage.value = await PassageRepository.get(props.book, props.chapter, translation.value)
-    // measureCanvas() is NOT called here — containerRef is still null because
-    // `loading` is true and the content div is hidden behind v-else.
-    // The containerRef watcher below handles sizing once the div mounts.
   } catch (e) {
     error.value = 'Could not load this passage. Please check your connection.'
   } finally {
     loading.value = false
   }
-  // Study notes are supplementary — fetch separately so a 404 or network error
-  // never prevents the passage itself from rendering.
   try {
     studyNotes.value = await PassageRepository.getNotes(props.book, props.chapter, translation.value)
   } catch {
     studyNotes.value = null
   }
+  if (showComparison.value) await loadSecondary()
 }
 
 watch([() => props.book, () => props.chapter, translation], load, { immediate: true })
 
 // ─── Canvas sizing ────────────────────────────────────────────────────────────
-// FIX: use scrollHeight so the canvas covers the full scrollable content height,
-// not just the visible viewport height.  Without this pen strokes on lower parts
-// of the chapter are clipped / mis-positioned.
 function measureCanvas() {
   if (!containerRef.value) return
   canvasSize.value = {
@@ -106,11 +159,6 @@ function measureCanvas() {
 
 const resizeObserver = new ResizeObserver(measureCanvas)
 
-// FIX: containerRef lives inside a v-else block that only renders once `loading`
-// is false. At onMounted, loading is still true so containerRef.value is null and
-// observe() is never called, leaving canvasSize at { width:0, height:0 }.
-// Watching containerRef directly ensures we start observing (and measure once)
-// the moment the element actually enters the DOM, regardless of when that happens.
 watch(containerRef, (el, prevEl) => {
   if (prevEl) resizeObserver.unobserve(prevEl)
   if (el) {
@@ -120,16 +168,28 @@ watch(containerRef, (el, prevEl) => {
 })
 onUnmounted(() => resizeObserver.disconnect())
 
+// ─── Keyboard shortcuts (undo / redo) ────────────────────────────────────────
+function onKeydown(evt) {
+  const ctrl = evt.ctrlKey || evt.metaKey
+  if (!ctrl) return
+  if (evt.key === 'z' && !evt.shiftKey) {
+    evt.preventDefault()
+    undoRedo.undo()
+  } else if (evt.key === 'z' && evt.shiftKey) {
+    evt.preventDefault()
+    undoRedo.redo()
+  } else if (evt.key === 'y') {
+    evt.preventDefault()
+    undoRedo.redo()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
 // ─── Highlight / Underline ────────────────────────────────────────────────────
-// FIX: the container is a scrollable div.  DOMRect coords from getClientRects()
-// are viewport-relative, so we must add scrollTop to get coords relative to the
-// full (scrolled) content — which is what the canvas is positioned against.
 function onPointerUp(evt) {
-  // Ignore if this came from a canvas pointer-down (pen mode)
   if (tool.activeTool === TOOLS.PEN) return
-  // resolveSelection() returns one entry per verse touched by the drag —
-  // a selection almost never stays inside a single verse since verses
-  // render inline in one paragraph.
   const selections = resolveSelection()
   if (!selections) return
   saveHighlight(selections)
@@ -141,7 +201,7 @@ async function saveHighlight(selections) {
 
   for (const sel of selections) {
     for (const rect of sel.rects) {
-      await AnnotationRepository.create({
+      const localId = await AnnotationRepository.create({
         userId: auth.user?.id ?? 'local',
         book: sel.book,
         chapter: sel.chapter,
@@ -151,7 +211,6 @@ async function saveHighlight(selections) {
         data: {
           charStart: sel.charStart,
           charEnd: sel.charEnd,
-          // Offset by scroll so the highlight div renders in the right place
           rect: {
             x: rect.x + scrollLeft,
             y: rect.y + scrollTop,
@@ -161,13 +220,14 @@ async function saveHighlight(selections) {
           opacity: tool.activeTool === TOOLS.HIGHLIGHTER ? 0.35 : 1
         }
       })
+      undoRedo.recordCreate(localId)
     }
   }
 }
 
 // ─── Pen stroke ───────────────────────────────────────────────────────────────
 async function onPenStrokeEnd(stroke) {
-  await AnnotationRepository.create({
+  const localId = await AnnotationRepository.create({
     userId: auth.user?.id ?? 'local',
     book: props.book,
     chapter: props.chapter,
@@ -176,11 +236,12 @@ async function onPenStrokeEnd(stroke) {
     colour: stroke.colour,
     data: stroke
   })
+  undoRedo.recordCreate(localId)
 }
 
 // ─── Shape stroke ─────────────────────────────────────────────────────────────
 async function onShapeStrokeEnd(shape) {
-  await AnnotationRepository.create({
+  const localId = await AnnotationRepository.create({
     userId: auth.user?.id ?? 'local',
     book: props.book,
     chapter: props.chapter,
@@ -189,16 +250,17 @@ async function onShapeStrokeEnd(shape) {
     colour: shape.colour,
     data: shape
   })
+  undoRedo.recordCreate(localId)
 }
 
 // ─── Eraser ───────────────────────────────────────────────────────────────────
 async function onErase(localId) {
+  undoRedo.recordRemove(localId)
   await AnnotationRepository.remove(localId)
 }
 
 // ─── Verse tap ────────────────────────────────────────────────────────────────
 function onVerseTap(verseNumber) {
-  // Don't open the notes sheet if a drawing/selection tool is active
   if ([TOOLS.PEN, TOOLS.HIGHLIGHTER, TOOLS.UNDERLINE, TOOLS.SHAPE, TOOLS.ERASER].includes(tool.activeTool)) return
 
   if (tool.activeTool === TOOLS.NOTE) {
@@ -206,7 +268,6 @@ function onVerseTap(verseNumber) {
     noteModalOpen.value = true
     return
   }
-  // Default: show study notes for this verse
   notesTargetVerse.value = verseNumber
   notesSheetOpen.value = true
 }
@@ -216,14 +277,25 @@ const passageReference = computed(() => passage.value?.reference ?? `${props.boo
 useStudySession(() => passageReference.value)
 
 const verses = computed(() => passage.value?.verses ?? [])
+const secondaryVerses = computed(() => secondaryPassage.value?.verses ?? [])
+
+// ─── PDF Export (PRD §5.5) ────────────────────────────────────────────────────
+async function handleExportPdf() {
+  // Grab a data-URL snapshot of the annotation canvas if present
+  const canvasEl = document.querySelector('canvas')
+  const canvasDataUrl = canvasEl ? canvasEl.toDataURL() : null
+
+  await exportToPdf({
+    passageRef: passageReference.value,
+    translation: translation.value,
+    verses: verses.value,
+    canvasDataUrl,
+    theme: settings.theme ?? 'light'
+  })
+}
 </script>
 
 <template>
-  <!--
-    FIX: this wrapper must be position:relative so that the absolutely-positioned
-    AnnotationToolbar (bottom-4 right-4) anchors inside the reader, not the
-    viewport.  The canvas overlay also uses absolute inset-0 within containerRef.
-  -->
   <div class="relative flex h-full flex-col overflow-hidden">
     <!-- Chapter nav header -->
     <ChapterNav
@@ -233,12 +305,70 @@ const verses = computed(() => passage.value?.verses ?? [])
       :chapter-count="passage?.totalChapters ?? 150"
     />
 
-    <!-- Translation selector row -->
+    <!-- Translation selector row + comparison toggle -->
     <div class="flex items-center gap-2 px-3 py-2 border-b border-border bg-card">
       <TranslationSelector v-model="translation" />
-      <span class="text-xs text-muted-foreground ml-auto">
-        {{ verses.length }} verse{{ verses.length === 1 ? '' : 's' }}
-      </span>
+
+      <!-- Compare button (PRD §5.1.2) -->
+      <button
+        type="button"
+        class="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors"
+        :class="showComparison
+          ? 'bg-primary text-primary-foreground'
+          : 'bg-secondary text-muted-foreground hover:text-foreground'"
+        :aria-label="showComparison ? 'Close comparison' : 'Compare translations'"
+        @click="showComparison = !showComparison"
+      >
+        <Columns2 class="h-3.5 w-3.5" />
+        <span class="hidden sm:inline">Compare</span>
+      </button>
+
+      <!-- Secondary translation selector (visible when comparison is open) -->
+      <select
+        v-if="showComparison"
+        v-model="secondaryTranslation"
+        class="ml-1 rounded border border-border bg-card px-1.5 py-0.5 text-xs text-foreground focus:outline-none"
+        aria-label="Secondary translation"
+      >
+        <option v-for="t in secondaryTranslations" :key="t" :value="t">{{ t }}</option>
+      </select>
+
+      <!-- PDF Export button (PRD §5.5) -->
+      <button
+        type="button"
+        class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary text-foreground"
+        aria-label="Export to PDF"
+        @click="handleExportPdf"
+      >
+        <Printer class="h-4 w-4" />
+      </button>
+
+      <!-- Undo / Redo buttons -->
+      <div class="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          :disabled="!undoRedo.canUndo"
+          class="flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-30"
+          :class="undoRedo.canUndo ? 'hover:bg-secondary text-foreground' : 'text-muted-foreground'"
+          aria-label="Undo"
+          @click="undoRedo.undo()"
+        >
+          <Undo2 class="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          :disabled="!undoRedo.canRedo"
+          class="flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:opacity-30"
+          :class="undoRedo.canRedo ? 'hover:bg-secondary text-foreground' : 'text-muted-foreground'"
+          aria-label="Redo"
+          @click="undoRedo.redo()"
+        >
+          <Redo2 class="h-4 w-4" />
+        </button>
+        <span class="text-xs text-muted-foreground">
+          {{ verses.length }} verse{{ verses.length === 1 ? '' : 's' }}
+        </span>
+      </div>
     </div>
 
     <!-- Loading state -->
@@ -255,74 +385,102 @@ const verses = computed(() => passage.value?.verses ?? [])
     </div>
 
     <!--
-      Scripture text + canvas overlay.
-      FIX: @pointerup lives here (not on the inner scroll div) so it fires
-      even when the highlight-tool canvas layer is pointer-events-none.
+      Scripture text + canvas overlay — supports single column or side-by-side comparison.
     -->
     <div
       v-else
-      class="relative flex-1 overflow-hidden"
+      class="relative flex flex-1 overflow-hidden"
+      :class="showComparison ? 'divide-x divide-border' : ''"
       @pointerup="onPointerUp"
     >
-      <!--
-        Scrollable text area.  The canvas is a sibling positioned absolute
-        so it does NOT scroll with the text — instead it covers the full
-        scrollHeight of this div and moves with scrollTop.
-      -->
+      <!-- PRIMARY column (always shown) -->
       <div
-        ref="containerRef"
-        class="h-full overflow-y-auto"
-        @scroll="onScroll"
-        :class="[
-          tool.activeTool === TOOLS.PEN || tool.activeTool === TOOLS.ERASER
-            ? 'select-none'   // prevent text selection interfering with drawing
-            : ''
-        ]"
+        class="relative"
+        :class="showComparison ? 'w-1/2' : 'flex-1'"
       >
-        <!--
-          Two-column layout on tablet/landscape (PRD §6.1 768px+ breakpoint).
-          Single column on mobile portrait.
-        -->
         <div
-          class="relative z-0 px-4 py-5"
-          :class="settings.twoColumnPreferred ? 'md:columns-2 md:gap-8' : ''"
+          ref="containerRef"
+          class="h-full overflow-y-auto"
+          :ref="showComparison ? 'primaryScrollRef' : 'containerRef'"
+          @scroll="showComparison ? onPrimaryScroll() : onScroll()"
+          :class="[
+            tool.activeTool === TOOLS.PEN || tool.activeTool === TOOLS.ERASER
+              ? 'select-none'
+              : ''
+          ]"
         >
-          <h1 class="font-scripture text-xl font-semibold text-foreground mb-6 break-after-avoid">
-            {{ passageReference }}
-          </h1>
+          <div
+            class="relative z-0 px-4 py-5"
+            :class="!showComparison && settings.twoColumnPreferred ? 'md:columns-2 md:gap-8' : ''"
+          >
+            <h1 class="font-scripture text-xl font-semibold text-foreground mb-6 break-after-avoid">
+              {{ passageReference }}
+              <span v-if="showComparison" class="ml-2 text-xs font-mono text-muted-foreground">({{ translation }})</span>
+            </h1>
 
-          <p class="font-scripture">
-            <VerseBlock
-              v-for="verse in verses"
-              :key="verse.number"
-              :book="book"
-              :chapter="chapter"
-              :verse="verse"
-              :font-size="settings.fontSize"
-              :line-height="settings.lineHeight"
-              @verse-tap="onVerseTap"
-            />
-          </p>
+            <p class="font-scripture">
+              <VerseBlock
+                v-for="verse in verses"
+                :key="verse.number"
+                :book="book"
+                :chapter="chapter"
+                :verse="verse"
+                :font-size="settings.fontSize"
+                :line-height="settings.lineHeight"
+                @verse-tap="onVerseTap"
+              />
+            </p>
+          </div>
         </div>
+
+        <!-- Canvas overlay — only on the primary column -->
+        <AnnotationCanvas
+          :annotations="annotations"
+          :width="canvasSize.width"
+          :height="canvasSize.height"
+          :scroll-top="scrollTopRef"
+          class="absolute inset-0 z-10 pointer-events-none"
+          :draw-mode="tool.activeTool === TOOLS.PEN || tool.activeTool === TOOLS.ERASER || tool.activeTool === TOOLS.SHAPE"
+          @pen-stroke-end="onPenStrokeEnd"
+          @shape-stroke-end="onShapeStrokeEnd"
+          @erase="onErase"
+        />
       </div>
 
-      <!--
-        Canvas overlay — absolutely positioned over the scrollable div.
-        FIX: pointer-events are NEVER captured for Highlighter/Underline —
-        the native text selection must reach the DOM.  Only Pen/Eraser/Shape
-        need pointer-events-auto on the canvas.
-      -->
-      <AnnotationCanvas
-        :annotations="annotations"
-        :width="canvasSize.width"
-        :height="canvasSize.height"
-        :scroll-top="scrollTopRef"
-        class="absolute inset-0 z-10 pointer-events-none"
-        :draw-mode="tool.activeTool === TOOLS.PEN || tool.activeTool === TOOLS.ERASER || tool.activeTool === TOOLS.SHAPE"
-        @pen-stroke-end="onPenStrokeEnd"
-        @shape-stroke-end="onShapeStrokeEnd"
-        @erase="onErase"
-      />
+      <!-- SECONDARY column — translation comparison (PRD §5.1.2) -->
+      <div
+        v-if="showComparison"
+        class="relative w-1/2 overflow-hidden"
+      >
+        <div
+          ref="secondaryScrollRef"
+          class="h-full overflow-y-auto"
+          @scroll="onSecondaryScroll"
+        >
+          <div class="relative z-0 px-4 py-5">
+            <h1 class="font-scripture text-xl font-semibold text-foreground mb-6">
+              {{ passageReference }}
+              <span class="ml-2 text-xs font-mono text-muted-foreground">({{ secondaryTranslation }})</span>
+            </h1>
+
+            <div v-if="!secondaryPassage" class="flex items-center justify-center py-12">
+              <div class="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+
+            <p v-else class="font-scripture">
+              <VerseBlock
+                v-for="verse in secondaryVerses"
+                :key="verse.number"
+                :book="book"
+                :chapter="chapter"
+                :verse="verse"
+                :font-size="settings.fontSize"
+                :line-height="settings.lineHeight"
+              />
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Floating annotation toolbar — anchored to this relative wrapper -->

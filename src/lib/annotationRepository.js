@@ -71,6 +71,19 @@ export const AnnotationRepository = {
     await this._enqueue('annotation', localId, 'delete')
   },
 
+  /**
+   * Restore a previously soft-deleted annotation (used by undo/redo store).
+   * Clears deletedAt and re-queues as an update so the server reflects the restore.
+   */
+  async restore(localId) {
+    await db.annotations.update(localId, {
+      deletedAt: null,
+      dirty: true,
+      updatedAt: new Date().toISOString()
+    })
+    await this._enqueue('annotation', localId, 'update')
+  },
+
   /** Tag an annotation into a notebook (many-to-many, PRD §11.1). */
   async addToNotebook(annotationLocalId, notebookLocalId) {
     const localId = await db.annotationNotebook.add({
