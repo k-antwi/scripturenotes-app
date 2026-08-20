@@ -59,8 +59,19 @@ function isExpanded(localId) {
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
-function openPassage(passage) {
-  router.push({ name: 'reader', params: { book: passage.book, chapter: passage.chapter } })
+/**
+ * Navigate to the reader whilst keeping the note context alive so the
+ * NotesContextBar can render prev/next passage navigation inside the reader.
+ *
+ * @param {object} passage  - the savedNotePassage record
+ * @param {object} note     - the parent savedNote record (provides noteId)
+ */
+function openPassage(passage, note) {
+  router.push({
+    name: 'reader',
+    params: { book: passage.book, chapter: passage.chapter },
+    query: { noteId: note.localId }
+  })
 }
 
 async function deleteNote(note) {
@@ -179,7 +190,7 @@ function formatDate(isoString) {
               :key="passage.localId"
               type="button"
               class="flex w-full items-center gap-3 border-t border-border/40 px-14 py-2.5 text-left hover:bg-secondary active:bg-secondary transition-colors"
-              @click="openPassage(passage)"
+              @click="openPassage(passage, note)"
             >
               <BookOpen class="h-4 w-4 shrink-0 text-primary" />
               <div class="min-w-0 flex-1">

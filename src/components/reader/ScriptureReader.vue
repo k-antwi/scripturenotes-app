@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import { liveQuery } from 'dexie'
 import { db } from '@/lib/db'
 import { PassageRepository } from '@/lib/passageRepository'
@@ -20,6 +21,7 @@ import AnnotationToolbar from '@/components/annotation/AnnotationToolbar.vue'
 import NoteModal from '@/components/annotation/NoteModal.vue'
 import StudyNotesPanel from '@/components/notes/StudyNotesPanel.vue'
 import SaveNoteDialog from '@/components/notes/SaveNoteDialog.vue'
+import NotesContextBar from '@/components/notes/NotesContextBar.vue'
 import { Sheet } from '@/components/ui/sheet'
 import { Columns2, Undo2, Redo2, Printer, BookmarkPlus } from 'lucide-vue-next'
 import { useSavedNotesStore } from '@/stores/savedNotes'
@@ -29,12 +31,20 @@ const props = defineProps({
   chapter: { type: Number, required: true }
 })
 
+const route = useRoute()
 const auth = useAuthStore()
 const settings = useSettingsStore()
 const tool = useToolStore()
 const undoRedo = useUndoRedoStore()
 const savedNotesStore = useSavedNotesStore()
 const { exportToPdf } = usePdfExport()
+
+// ── Notes context ─────────────────────────────────────────────────────────────
+// Present when the reader was launched from the Notes tab. The NotesContextBar
+// uses this to render note name + prev/next passage navigation.
+const noteId = computed(() =>
+  route.query.noteId ? Number(route.query.noteId) : null
+)
 
 // ── Save Note dialog ─────────────────────────────────────────────────────────
 const saveNoteDialogOpen = ref(false)
@@ -321,6 +331,14 @@ async function handleExportPdf() {
 
 <template>
   <div class="relative flex h-full flex-col overflow-hidden">
+    <!-- Notes context bar — visible when reader is opened from the Notes tab -->
+    <NotesContextBar
+      v-if="noteId"
+      :note-id="noteId"
+      :book="book"
+      :chapter="chapter"
+    />
+
     <!-- Chapter nav header -->
     <ChapterNav
       :book="book"

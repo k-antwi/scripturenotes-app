@@ -13,8 +13,23 @@ const tabs = [
   { name: 'settings', label: 'Settings', icon: Settings, to: '/settings' }
 ]
 
+/**
+ * Determine which bottom-tab is "active".
+ *
+ * When the reader is opened from the Notes tab (noteId query param present),
+ * the Notes tab stays highlighted so the user knows they're still browsing
+ * their note — not doing free reading. The Read tab is only active when the
+ * reader is used without a note context.
+ */
 function isActive(tabName) {
-  if (tabName === 'reader') return route.name === 'reader' || route.name === 'book-picker'
+  const inNotesContext = route.name === 'reader' && !!route.query.noteId
+
+  if (tabName === 'reader') {
+    return (route.name === 'reader' || route.name === 'book-picker') && !inNotesContext
+  }
+  if (tabName === 'notes') {
+    return route.name === 'notes' || inNotesContext
+  }
   return route.name === tabName
 }
 </script>
