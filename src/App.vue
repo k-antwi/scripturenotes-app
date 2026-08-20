@@ -1,11 +1,32 @@
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import AppShell from '@/components/layout/AppShell.vue'
 import { useOfflineStatus } from '@/composables/useOfflineStatus'
+import { useAuthStore } from '@/stores/auth'
+import { startSyncLoop, stopSyncLoop } from '@/lib/syncService'
 
 // Kick off connectivity + Capacitor Network listener once at the root
 // so every view can read from the same offline indicator (PRD §5.4).
 useOfflineStatus()
+
+const auth = useAuthStore()
+
+// Background sync must only run for authenticated users — the outbox
+// calls AnnotationAPI.sync() which requires a valid token (PRD §4.1 §9).
+// Watching isAuthenticated (immediate) starts the loop right away if the
+// user is already logged in from a persisted session, and stops it cleanly
+// on logout so no unauthenticated API calls are fired.
+watch(
+  () => auth.isAuthenticated,
+  (authenticated) => {
+    if (authenticated) {
+      startSyncLoop()
+    } else {
+      stopSyncLoop()
+    }
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   document.documentElement.classList.add('safe-top', 'safe-bottom')

@@ -12,6 +12,10 @@ export function useStudySession(passageRefGetter) {
   const sessionId = ref(null)
 
   async function startSession(passageRef) {
+    // History is a user-owned feature — no point recording sessions that can
+    // never be viewed (guests have no /history route access, PRD §5.5).
+    if (!auth.isAuthenticated) return
+
     const now = new Date().toISOString()
     const today = now.slice(0, 10) // 'YYYY-MM-DD'
 
@@ -40,7 +44,7 @@ export function useStudySession(passageRefGetter) {
   }
 
   async function pingSession() {
-    if (!sessionId.value) return
+    if (!auth.isAuthenticated || !sessionId.value) return
     await db.studySessions.update(sessionId.value, {
       lastActiveAt: new Date().toISOString()
     })
