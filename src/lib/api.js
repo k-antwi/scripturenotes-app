@@ -31,10 +31,10 @@ api.interceptors.request.use(async (config) => {
 
 // --- §7.1 Auth -------------------------------------------------------------
 export const AuthAPI = {
-  register: (payload) => api.post('/auth/register', payload),
-  login: (payload) => api.post('/auth/login', payload),
-  logout: () => api.post('/auth/logout'),
-  me: () => api.get('/auth/me')
+  register: (payload) => api.post('/api/register', payload),
+  login: (payload) => api.post('/api/login', payload),
+  logout: () => api.post('/api/logout'),
+  me: () => api.get('/api/user')
 }
 
 // --- §7.2 Annotations --------------------------------------------------------

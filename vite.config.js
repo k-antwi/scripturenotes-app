@@ -71,6 +71,9 @@ export default defineConfig(({ mode }) => {
         }
       }
     },
+    define: {
+      'global.crypto': 'globalThis.crypto'
+    },
     test: {
       environment: 'jsdom'
     }

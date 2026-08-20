@@ -8,8 +8,12 @@
  *
  * The helloao chapter payload's `content` array mixes headings, line breaks
  * and verse entries. Each verse's own `content` array is a list of text
- * fragments (e.g. one per poetic line) with an optional `noteId` linking to
- * the chapter-level `footnotes` array.
+ * fragments that come in two shapes depending on the book genre:
+ *   - Plain string:          "In the beginning God created the heavens..."
+ *     (narrative books like Genesis, Exodus, etc.)
+ *   - Object with text key:  { text: "These are the proverbs...", poem: 1 }
+ *     (poetic books like Proverbs, Psalms, etc.)
+ * Footnote-only objects like { noteId: 0 } carry no text and are skipped.
  */
 export function normalizeHelloaoChapter(raw, { book, chapter, translation }) {
   const content = raw?.chapter?.content ?? []
@@ -20,9 +24,13 @@ export function normalizeHelloaoChapter(raw, { book, chapter, translation }) {
     .map((item) => {
       const parts = Array.isArray(item.content) ? item.content : []
 
+      // Handle both content shapes the API returns:
+      //   - plain string  → narrative books (Genesis, Exodus, …)
+      //   - { text, … }  → poetic books (Proverbs, Psalms, …)
+      // Objects that only carry { noteId } have no text and are skipped.
       const text = parts
-        .filter((part) => typeof part === 'object' && typeof part.text === 'string')
-        .map((part) => part.text)
+        .filter((part) => typeof part === 'string' || (typeof part === 'object' && typeof part.text === 'string'))
+        .map((part) => (typeof part === 'string' ? part : part.text))
         .join(' ')
         .replace(/\s+/g, ' ')
         .trim()

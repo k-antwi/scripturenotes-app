@@ -22,7 +22,7 @@ async function login() {
     await auth.login({ email: email.value, password: password.value })
     router.push(route.query.redirect ?? '/')
   } catch (e) {
-    errorMsg.value = e.response?.data?.message ?? 'Login failed. Please try again.'
+    errorMsg.value = e.response?.data?.message ?? e.response?.data?.error ?? 'Login failed. Please try again.'
   } finally {
     loading.value = false
   }

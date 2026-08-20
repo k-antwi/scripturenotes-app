@@ -13,22 +13,16 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async login(credentials) {
       const { data } = await AuthAPI.login(credentials)
-      this.user = data.user
-      // Web (Inertia/Sanctum) uses the session cookie; Capacitor builds
-      // also receive a bearer token since the native WebView is a
-      // separate origin from the API (PRD §3 Authentication).
-      if (data.token) {
-        this.token = data.token
-        await Preferences.set({ key: 'auth_token', value: data.token })
-      }
+      // Wave/JWT returns { access_token, token_type, expires_in } — no user object
+      this.token = data.access_token
+      await Preferences.set({ key: 'auth_token', value: data.access_token })
+      await this.fetchMe()
     },
     async register(payload) {
       const { data } = await AuthAPI.register(payload)
-      this.user = data.user
-      if (data.token) {
-        this.token = data.token
-        await Preferences.set({ key: 'auth_token', value: data.token })
-      }
+      this.token = data.access_token
+      await Preferences.set({ key: 'auth_token', value: data.access_token })
+      await this.fetchMe()
     },
     async fetchMe() {
       try {
