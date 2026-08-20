@@ -48,4 +48,25 @@ db.version(2).stores({
   studyNotes: '[book+chapter+translation+source]'
 })
 
+// v3: savedNotes — explicitly named study notes saved by the user from the reader.
+// Unlike annotations (auto-saved on every action), a savedNote is a deliberate
+// user action: they tap "Save Note", give it a name, and it appears in the Notes tab.
+db.version(3).stores({
+  savedNotes:
+    '++localId, remoteId, userId, name, passageRef, book, chapter, createdAt, updatedAt, dirty'
+})
+
+// v4: savedNotePassages — a note can now span multiple passages.
+// Each row links one savedNote to one passage, allowing the user to add
+// annotations from John 3, Proverbs 19, Romans 8, etc. all under one note.
+// The passage-level columns (book, chapter, passageRef) move here from savedNotes;
+// savedNotes keeps only the note-level metadata (name, timestamps).
+db.version(4).stores({
+  // Drop passage-level indexes from savedNotes — a note is no longer tied to one passage.
+  savedNotes: '++localId, remoteId, userId, name, createdAt, updatedAt, dirty',
+  // One row per (note × passage) pair. savedNoteLocalId is the FK to savedNotes.
+  savedNotePassages:
+    '++localId, savedNoteLocalId, [savedNoteLocalId+book+chapter], book, chapter, savedAt'
+})
+
 export default db

@@ -19,7 +19,14 @@ const routes = [
     component: () => import('@/views/BookPickerView.vue')
   },
   {
-    // 'My Annotations' — searchable by keyword, verse, colour, type (PRD §5.5)
+    // 'My Notes' — explicitly saved named notes (Notes tab, PRD §5.5)
+    path: '/notes',
+    name: 'notes',
+    component: () => import('@/views/NotesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    // 'My Annotations' — full auto-saved annotation history, searchable (PRD §5.5)
     path: '/annotations',
     name: 'annotations',
     component: () => import('@/views/AnnotationsView.vue'),

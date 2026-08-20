@@ -19,8 +19,10 @@ import AnnotationCanvas from '@/components/annotation/AnnotationCanvas.vue'
 import AnnotationToolbar from '@/components/annotation/AnnotationToolbar.vue'
 import NoteModal from '@/components/annotation/NoteModal.vue'
 import StudyNotesPanel from '@/components/notes/StudyNotesPanel.vue'
+import SaveNoteDialog from '@/components/notes/SaveNoteDialog.vue'
 import { Sheet } from '@/components/ui/sheet'
-import { Columns2, Undo2, Redo2, Printer } from 'lucide-vue-next'
+import { Columns2, Undo2, Redo2, Printer, BookmarkPlus } from 'lucide-vue-next'
+import { useSavedNotesStore } from '@/stores/savedNotes'
 
 const props = defineProps({
   book: { type: String, required: true },
@@ -31,7 +33,29 @@ const auth = useAuthStore()
 const settings = useSettingsStore()
 const tool = useToolStore()
 const undoRedo = useUndoRedoStore()
+const savedNotesStore = useSavedNotesStore()
 const { exportToPdf } = usePdfExport()
+
+// ── Save Note dialog ─────────────────────────────────────────────────────────
+const saveNoteDialogOpen = ref(false)
+
+/**
+ * Handles the SaveNoteDialog 'save' event.
+ * @param {{ type: 'new', name: string } | { type: 'existing', noteLocalId: number }} payload
+ */
+async function handleSaveNote({ type, name, noteLocalId }) {
+  const passagePayload = {
+    book: props.book,
+    chapter: props.chapter,
+    passageRef: passageReference.value,
+    annotationCount: annotations.value?.length ?? 0
+  }
+  if (type === 'new') {
+    await savedNotesStore.save({ name, ...passagePayload })
+  } else {
+    await savedNotesStore.addPassage(noteLocalId, passagePayload)
+  }
+}
 
 // containerRef is the scrollable text div — canvas is sized to match it
 const containerRef = ref(null)
@@ -343,6 +367,16 @@ async function handleExportPdf() {
         <Printer class="h-4 w-4" />
       </button>
 
+      <!-- Save Note button — creates an explicitly named note in the Notes tab -->
+      <button
+        type="button"
+        class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-secondary text-foreground"
+        aria-label="Save note"
+        @click="saveNoteDialogOpen = true"
+      >
+        <BookmarkPlus class="h-4 w-4" />
+      </button>
+
       <!-- Undo / Redo buttons -->
       <div class="ml-auto flex items-center gap-1">
         <button
@@ -492,6 +526,13 @@ async function handleExportPdf() {
       :book="book"
       :chapter="chapter"
       :verse="noteTargetVerse"
+    />
+
+    <!-- Save Note dialog — names and persists the current study session as a Note -->
+    <SaveNoteDialog
+      v-model="saveNoteDialogOpen"
+      :passage-ref="passageReference"
+      @save="handleSaveNote"
     />
 
     <!-- Study notes panel — bottom sheet on mobile -->
