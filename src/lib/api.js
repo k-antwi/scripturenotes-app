@@ -1,11 +1,14 @@
-import axios from 'axios'
 import { Preferences } from '@capacitor/preferences'
 
 /**
  * Laravel API client (PRD §7).
  *
+ * Built on the platform `fetch`, with a thin axios-shaped wrapper so callers
+ * keep working with `{ data }` responses and `err.response.{status,data}`
+ * errors.
+ *
  * baseURL strategy:
- *  - Browser dev  (npm run dev)  → VITE_API_BASE_URL is empty; axios sends
+ *  - Browser dev  (npm run dev)  → VITE_API_BASE_URL is empty; requests use
  *    relative paths (/api/…) which the Vite dev-server proxy forwards to the
  *    Laravel host. No cross-origin request ever leaves the browser, so CORS
  *    is a non-issue.
@@ -13,21 +16,125 @@ import { Preferences } from '@capacitor/preferences'
  *    host (e.g. http://localhost:58128 or https://api.biblestudy.app). The
  *    Laravel CORS config must explicitly allow the app origin with credentials.
  *
- * Web builds use Sanctum session cookies; Capacitor builds attach a bearer
- * token, since the native WebView can't share first-party cookies with the
- * API host (PRD §3 Authentication).
+ * Web builds use Sanctum session cookies (credentials: 'include'); Capacitor
+ * builds attach a bearer token, since the native WebView can't share
+ * first-party cookies with the API host (PRD §3 Authentication).
  */
-export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '',
-  withCredentials: true,
-  headers: { Accept: 'application/json' }
-})
+const baseURL = import.meta.env.VITE_API_BASE_URL || ''
 
-api.interceptors.request.use(async (config) => {
+/**
+ * Error thrown for both transport failures and non-2xx responses.
+ *
+ * `response` is populated only when the server actually answered, mirroring
+ * axios so existing `err.response?.status` / `err.response.data` checks
+ * (e.g. the 409 conflict path in syncService) keep working.
+ */
+export class ApiError extends Error {
+  constructor(message, { response = null, cause = undefined } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.response = response
+    if (cause !== undefined) this.cause = cause
+  }
+}
+
+/** Serialise `params` the way axios does: skip null/undefined, repeat arrays. */
+function buildUrl(url, params) {
+  const absolute = /^https?:\/\//i.test(url) ? url : `${baseURL}${url}`
+  if (!params) return absolute
+
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === null || value === undefined) continue
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== null && item !== undefined) search.append(`${key}[]`, item)
+      }
+    } else {
+      search.append(key, value)
+    }
+  }
+
+  const query = search.toString()
+  if (!query) return absolute
+  return absolute + (absolute.includes('?') ? '&' : '?') + query
+}
+
+/** Parse by content type, falling back to raw text (and null for empty bodies). */
+async function parseBody(response) {
+  if (response.status === 204 || response.status === 205) return null
+
+  const contentType = response.headers.get('content-type') || ''
+  const text = await response.text()
+  if (text === '') return null
+
+  if (contentType.includes('json')) {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return text
+    }
+  }
+  return text
+}
+
+async function request(method, url, { params, data, headers, signal } = {}) {
+  const requestHeaders = { Accept: 'application/json', ...headers }
+
   const { value: token } = await Preferences.get({ key: 'auth_token' })
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
-})
+  if (token) requestHeaders.Authorization = `Bearer ${token}`
+
+  const init = {
+    method,
+    // Sanctum session cookies for web builds — the axios `withCredentials` equivalent.
+    credentials: 'include',
+    headers: requestHeaders,
+    signal
+  }
+
+  if (data !== undefined) {
+    if (data instanceof FormData || data instanceof Blob || data instanceof URLSearchParams) {
+      init.body = data
+    } else {
+      if (!requestHeaders['Content-Type']) requestHeaders['Content-Type'] = 'application/json'
+      init.body = JSON.stringify(data)
+    }
+  }
+
+  let response
+  try {
+    response = await fetch(buildUrl(url, params), init)
+  } catch (err) {
+    if (err?.name === 'AbortError') throw err
+    throw new ApiError(`Network error: ${method} ${url}`, { cause: err })
+  }
+
+  const body = await parseBody(response)
+  const result = {
+    data: body,
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  }
+
+  if (!response.ok) {
+    throw new ApiError(
+      `Request failed with status code ${response.status}`,
+      { response: result }
+    )
+  }
+
+  return result
+}
+
+export const api = {
+  request,
+  get: (url, config) => request('GET', url, config),
+  delete: (url, config) => request('DELETE', url, config),
+  post: (url, data, config) => request('POST', url, { ...config, data }),
+  put: (url, data, config) => request('PUT', url, { ...config, data }),
+  patch: (url, data, config) => request('PATCH', url, { ...config, data })
+}
 
 // --- §7.1 Auth ---------------------------------------------------------------
 export const AuthAPI = {
