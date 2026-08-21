@@ -29,7 +29,7 @@ api.interceptors.request.use(async (config) => {
   return config
 })
 
-// --- §7.1 Auth -------------------------------------------------------------
+// --- §7.1 Auth ---------------------------------------------------------------
 export const AuthAPI = {
   register: (payload) => api.post('/api/register', payload),
   login: (payload) => api.post('/api/login', payload),
@@ -57,7 +57,46 @@ export const ShareAPI = {
   getShared: (token) => api.get(`/api/shared/${token}`)
 }
 
-// --- §7.3 Passages (cache proxy) --------------------------------------------
+// --- §7.3 Bible API — unified multi-provider gateway -------------------------
+//
+// All verse text is served through these endpoints. The backend decides which
+// provider to use (API.Bible for licensed translations, Free Use for public
+// domain). Requires Sanctum auth — use freeUseBibleProvider directly for
+// unauthenticated access.
+//
+// Response envelope: { data: { reference, version, verses[] }, meta: { provider, cached } }
+export const BibleAPI = {
+  /** GET /api/bible/chapter?book=JHN&chapter=3&version=NIV */
+  chapter: (book, chapter, version) =>
+    api.get('/api/bible/chapter', { params: { book, chapter, version } }),
+
+  /** GET /api/bible/passage?ref=John+3:16&version=NIV */
+  passage: (ref, version) =>
+    api.get('/api/bible/passage', { params: { ref, version } }),
+
+  /** GET /api/bible/search?q=faith&version=KJV&type=keyword|semantic */
+  search: (query, version, type = 'keyword') =>
+    api.get('/api/bible/search', { params: { q: query, version, type } }),
+
+  /** GET /api/bible/audio?ref=Psalm+23&version=KJV */
+  audio: (ref, version) =>
+    api.get('/api/bible/audio', { params: { ref, version } }),
+
+  /** GET /api/bible/verse-of-day */
+  verseOfDay: () =>
+    api.get('/api/bible/verse-of-day'),
+
+  /** GET /api/bible/dictionary?word=grace */
+  dictionary: (word) =>
+    api.get('/api/bible/dictionary', { params: { word } }),
+
+  /** GET /api/bible/versions?language=en */
+  versions: (language = 'en') =>
+    api.get('/api/bible/versions', { params: { language } })
+}
+
+// --- §7.3 Passages (legacy cache proxy — kept for backward compatibility) ----
+// Prefer BibleAPI for new code.
 export const PassageAPI = {
   get: (book, chapter, translation) =>
     api.get(`/api/passages/${book}/${chapter}`, { params: { translation } }),
@@ -65,7 +104,7 @@ export const PassageAPI = {
     api.get(`/api/passages/${book}/${chapter}/notes`, { params: { translation } })
 }
 
-// --- §7.4 Bookmarks -----------------------------------------------------------
+// --- §7.4 Bookmarks ----------------------------------------------------------
 export const BookmarkAPI = {
   list: () => api.get('/api/bookmarks'),
   create: (payload) => api.post('/api/bookmarks', payload),
