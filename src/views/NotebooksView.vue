@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue'
-import { BookMarked, Plus, Loader2 } from 'lucide-vue-next'
+import { BookMarked, Lock, Plus, Loader2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { liveQuery } from 'dexie'
 import { db } from '@/lib/db'
@@ -9,10 +9,24 @@ import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth'
+import { NotebookAPI } from '@/lib/api'
 
 const router = useRouter()
 const auth = useAuthStore()
-const notebooks = useObservable(() => liveQuery(() => db.notebooks.orderBy('title').toArray()), [])
+
+// Sort: default (Untitled) first, then alphabetical
+const notebooks = useObservable(
+  () => liveQuery(() =>
+    db.notebooks.toArray().then((nbs) =>
+      nbs.sort((a, b) => {
+        if (a.isDefault && !b.isDefault) return -1
+        if (!a.isDefault && b.isDefault) return 1
+        return a.title.localeCompare(b.title)
+      })
+    )
+  ),
+  []
+)
 
 const createOpen = ref(false)
 const newTitle = ref('')
@@ -21,20 +35,52 @@ const saving = ref(false)
 async function createNotebook() {
   if (!newTitle.value.trim()) return
   saving.value = true
-  await db.notebooks.add({
+  const localId = await db.notebooks.add({
     remoteId: null,
     userId: auth.user?.id ?? 'local',
+    isDefault: 0,
     title: newTitle.value.trim(),
     updatedAt: new Date().toISOString(),
-    dirty: true
+    dirty: true,
   })
+
+  await db.syncQueue.add({
+    entityType: 'notebook',
+    entityLocalId: localId,
+    action: 'create',
+    createdAt: new Date().toISOString(),
+    attempts: 0,
+  })
+
+  // Optimistic push
+  try {
+    const { data } = await NotebookAPI.create({ title: newTitle.value.trim() })
+    await db.notebooks.update(localId, { remoteId: data.id, dirty: false })
+    await db.syncQueue.where({ entityType: 'notebook', entityLocalId: localId }).delete()
+  } catch {
+    // Will sync later
+  }
+
   newTitle.value = ''
   saving.value = false
   createOpen.value = false
 }
 
-async function countAnnotations(nb) {
-  return db.annotationNotebook.where({ notebookLocalId: nb.localId }).count()
+async function deleteNotebook(nb) {
+  if (nb.isDefault) return  // Untitled Notebook cannot be deleted
+
+  // Remove pivot rows and notebook locally
+  await db.noteNotebook.where({ notebookLocalId: nb.localId }).delete()
+  await db.annotationNotebook.where({ notebookLocalId: nb.localId }).delete()
+  await db.notebooks.delete(nb.localId)
+
+  if (nb.remoteId) {
+    try {
+      await NotebookAPI.destroy(nb.remoteId)
+    } catch {
+      // Tolerate — server delete can be retried via syncQueue if needed
+    }
+  }
 }
 </script>
 
@@ -54,21 +100,40 @@ async function countAnnotations(nb) {
         <p class="text-xs mt-1">Create one to organise your annotations</p>
       </div>
 
-      <button
+      <div
         v-for="nb in notebooks"
         :key="nb.localId"
-        type="button"
-        class="flex w-full items-center gap-4 border-b border-border/60 px-4 py-4 text-left active:bg-secondary"
-        @click="router.push({ name: 'notebook-detail', params: { id: nb.localId } })"
+        class="flex w-full items-center gap-4 border-b border-border/60 px-4 py-4 active:bg-secondary"
       >
-        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
-          <BookMarked class="h-5 w-5 text-primary" />
-        </div>
-        <div>
-          <p class="text-base font-medium">{{ nb.title }}</p>
-          <p v-if="nb.dirty" class="text-xs text-muted-foreground">Not synced yet</p>
-        </div>
-      </button>
+        <!-- Tap to open detail -->
+        <button
+          type="button"
+          class="flex flex-1 items-center gap-4 text-left"
+          @click="router.push({ name: 'notebook-detail', params: { id: nb.localId } })"
+        >
+          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
+            <BookMarked class="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <p class="flex items-center gap-1.5 text-base font-medium">
+              {{ nb.title }}
+              <Lock v-if="nb.isDefault" class="h-3 w-3 text-muted-foreground opacity-60" />
+            </p>
+            <p v-if="nb.dirty" class="text-xs text-muted-foreground">Not synced yet</p>
+          </div>
+        </button>
+
+        <!-- Delete button — hidden for default notebook -->
+        <button
+          v-if="!nb.isDefault"
+          type="button"
+          class="text-muted-foreground hover:text-destructive transition-colors p-1"
+          aria-label="Delete notebook"
+          @click="deleteNotebook(nb)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        </button>
+      </div>
     </div>
 
     <Dialog v-model="createOpen" title="New notebook">

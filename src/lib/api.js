@@ -124,6 +124,19 @@ export const NotebookAPI = {
     api.delete(`/api/notebooks/${notebookId}/annotations/${annotationId}`)
 }
 
+// --- Notes (user-authored scripture notes, PRD §5.3 / §6.5) -----------------
+export const NoteAPI = {
+  list: (params) => api.get('/api/notes', { params }),
+  create: (payload) => api.post('/api/notes', payload),
+  show: (id) => api.get(`/api/notes/${id}`),
+  update: (id, payload) => api.put(`/api/notes/${id}`, payload),
+  destroy: (id) => api.delete(`/api/notes/${id}`),
+  forPassage: (book, chapter) => api.get(`/api/notes/passage/${book}/${chapter}`),
+  sync: (mutations) => api.post('/api/notes/sync', { mutations }),
+  notebookNotes: (notebookId, page = 1) =>
+    api.get(`/api/notebooks/${notebookId}/notes`, { params: { page } }),
+}
+
 // --- Custom Notes (user commentary) ------------------------------------------
 export const CustomNoteAPI = {
   list: (params) => api.get('/api/custom-notes', { params }),

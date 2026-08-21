@@ -6,14 +6,20 @@ const props = defineProps({
   chapter: { type: Number, required: true },
   verse: { type: Object, required: true }, // { number, text, footnotes? }
   fontSize: { type: Number, default: 17 },
-  lineHeight: { type: Number, default: 1.6 }
+  lineHeight: { type: Number, default: 1.6 },
+  hasNote: { type: Boolean, default: false },  // show margin dot if true
 })
 
-const emit = defineEmits(['verse-tap'])
+const emit = defineEmits(['verse-tap', 'note-dot-tap'])
 const noteExpanded = ref(false)
 
 function handleVerseTap() {
   emit('verse-tap', props.verse.number)
+}
+
+function handleNoteDotTap(evt) {
+  evt.stopPropagation()
+  emit('note-dot-tap', props.verse.number)
 }
 
 // Footnote markers like ᵃ, ¹ are extracted inline (PRD §5.1.1)
@@ -34,12 +40,22 @@ function parseText(raw) {
     class="verse-block"
     :style="{ fontSize: `${fontSize}px`, lineHeight }"
   >
-    <!-- Verse number: always superscript, coloured, tap → study notes (PRD §5.1.1, §5.3) -->
-    <sup
-      class="verse-num mr-0.5 cursor-pointer font-sans text-accent select-none"
-      :style="{ fontSize: `${Math.round(fontSize * 0.7)}px` }"
-      @click="handleVerseTap"
-    >{{ verse.number }}</sup>
+    <!-- Verse number wrapper: margin dot (note indicator) + verse number -->
+    <span class="verse-number-wrapper relative inline-flex items-center">
+      <!-- Margin dot — visible when this verse has user notes -->
+      <span
+        v-if="hasNote"
+        class="note-dot"
+        :style="{ width: `${Math.round(fontSize * 0.4)}px`, height: `${Math.round(fontSize * 0.4)}px` }"
+        aria-label="View note"
+        @click="handleNoteDotTap"
+      />
+      <sup
+        class="verse-num mr-0.5 cursor-pointer font-sans text-accent select-none"
+        :style="{ fontSize: `${Math.round(fontSize * 0.7)}px` }"
+        @click="handleVerseTap"
+      >{{ verse.number }}</sup>
+    </span><!-- end .verse-number-wrapper -->
 
     <!-- Verse text — html for inline footnote markers -->
     <span
@@ -65,3 +81,21 @@ function parseText(raw) {
     </template>
   </span>
 </template>
+
+<style scoped>
+.verse-number-wrapper {
+  display: inline-flex;
+  align-items: center;
+}
+
+.note-dot {
+  display: inline-block;
+  border-radius: 50%;
+  background-color: var(--color-accent, #6366f1);
+  margin-right: 2px;
+  cursor: pointer;
+  flex-shrink: 0;
+  min-width: 6px;
+  min-height: 6px;
+}
+</style>

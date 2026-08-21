@@ -69,4 +69,14 @@ db.version(4).stores({
     '++localId, savedNoteLocalId, [savedNoteLocalId+book+chapter], book, chapter, savedAt'
 })
 
+// v5: notes — user-authored scripture notes with verse/phrase anchors (PRD §5.3, §6.5).
+// noteNotebook — many-to-many pivot linking notes to notebooks.
+// notebooks gets isDefault flag for the auto-created Untitled Notebook.
+db.version(5).stores({
+  notebooks: '++localId, remoteId, userId, isDefault, title, updatedAt, dirty',
+  notes:
+    '++localId, remoteId, userId, book, chapter, verse, char_start, char_end, updatedAt, dirty, deletedAt',
+  noteNotebook: '++localId, noteLocalId, notebookLocalId, dirty',
+})
+
 export default db

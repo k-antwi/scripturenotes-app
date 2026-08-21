@@ -22,9 +22,12 @@ import NoteModal from '@/components/annotation/NoteModal.vue'
 import StudyNotesPanel from '@/components/notes/StudyNotesPanel.vue'
 import SaveNoteDialog from '@/components/notes/SaveNoteDialog.vue'
 import NotesContextBar from '@/components/notes/NotesContextBar.vue'
+import NotePopup from '@/components/notes/NotePopup.vue'
+import NoteEditorModal from '@/components/notes/NoteEditorModal.vue'
 import { Sheet } from '@/components/ui/sheet'
 import { Columns2, Undo2, Redo2, Printer, BookmarkPlus } from 'lucide-vue-next'
 import { useSavedNotesStore } from '@/stores/savedNotes'
+import { useNoteStore } from '@/stores/noteStore'
 
 const props = defineProps({
   book: { type: String, required: true },
@@ -37,7 +40,17 @@ const settings = useSettingsStore()
 const tool = useToolStore()
 const undoRedo = useUndoRedoStore()
 const savedNotesStore = useSavedNotesStore()
+const noteStore = useNoteStore()
 const { exportToPdf } = usePdfExport()
+
+// ── User note state ────────────────────────────────────────────────────────────
+const notePopupOpen = ref(false)
+const notePopupNotes = ref([])          // notes to show in the popup
+const noteEditorOpen = ref(false)
+const noteEditorVerse = ref(null)
+const noteEditorCharStart = ref(null)
+const noteEditorCharEnd = ref(null)
+const noteEditTarget = ref(null)        // Note being edited (null = create)
 
 // ── Notes context ─────────────────────────────────────────────────────────────
 // Present when the reader was launched from the Notes tab. The NotesContextBar
@@ -186,6 +199,13 @@ async function load() {
 
 watch([() => props.book, () => props.chapter, translation], load, { immediate: true })
 
+// Reload passage notes whenever book/chapter changes
+watch(
+  [() => props.book, () => props.chapter],
+  ([book, chapter]) => noteStore.loadForPassage(book, chapter),
+  { immediate: true }
+)
+
 // ─── Canvas sizing ────────────────────────────────────────────────────────────
 function measureCanvas() {
   if (!containerRef.value) return
@@ -297,17 +317,49 @@ async function onErase(localId) {
   await AnnotationRepository.remove(localId)
 }
 
+// ─── Note popup helpers ───────────────────────────────────────────────────────
+
+function openNotePopup(verseNumber) {
+  notePopupNotes.value = noteStore.notesByVerse[verseNumber] ?? []
+  if (notePopupNotes.value.length) notePopupOpen.value = true
+}
+
+function openNoteEditor({ verse = null, charStart = null, charEnd = null, editNote = null } = {}) {
+  noteEditorVerse.value = verse
+  noteEditorCharStart.value = charStart
+  noteEditorCharEnd.value = charEnd
+  noteEditTarget.value = editNote
+  noteEditorOpen.value = true
+}
+
 // ─── Verse tap ────────────────────────────────────────────────────────────────
 function onVerseTap(verseNumber) {
   if ([TOOLS.PEN, TOOLS.HIGHLIGHTER, TOOLS.UNDERLINE, TOOLS.SHAPE, TOOLS.ERASER].includes(tool.activeTool)) return
 
   if (tool.activeTool === TOOLS.NOTE) {
-    noteTargetVerse.value = verseNumber
-    noteModalOpen.value = true
+    openNoteEditor({ verse: verseNumber })
     return
   }
-  notesTargetVerse.value = verseNumber
-  notesSheetOpen.value = true
+
+  const hasUserNote = !!(noteStore.notesByVerse[verseNumber]?.length)
+  const hasCommentary = !!(studyNotes.value?.verses?.[verseNumber])
+
+  if (hasCommentary && hasUserNote) {
+    // Both exist — show action sheet options in study notes panel with an added user-note option
+    notesTargetVerse.value = verseNumber
+    notesSheetOpen.value = true
+    return
+  }
+  if (hasCommentary) {
+    notesTargetVerse.value = verseNumber
+    notesSheetOpen.value = true
+    return
+  }
+  // Commentary-only or note-only: note dot handles its own tap; verse number tap does nothing extra
+}
+
+function onNoteDotTap(verseNumber) {
+  openNotePopup(verseNumber)
 }
 
 const passageReference = computed(() => passage.value?.reference ?? `${props.book} ${props.chapter}`)
@@ -484,7 +536,9 @@ async function handleExportPdf() {
                 :verse="verse"
                 :font-size="settings.fontSize"
                 :line-height="settings.lineHeight"
+                :has-note="!!(noteStore.notesByVerse[verse.number]?.length)"
                 @verse-tap="onVerseTap"
+                @note-dot-tap="onNoteDotTap"
               />
             </p>
           </div>
@@ -567,5 +621,24 @@ async function handleExportPdf() {
         @navigate-ref="notesSheetOpen = false"
       />
     </Sheet>
+
+    <!-- User note popup — shows existing note(s) for a verse -->
+    <NotePopup
+      v-model="notePopupOpen"
+      :notes="notePopupNotes"
+      @edit="(note) => openNoteEditor({ editNote: note })"
+    />
+
+    <!-- Note editor modal — create or edit a user note -->
+    <NoteEditorModal
+      v-model="noteEditorOpen"
+      :book="book"
+      :chapter="chapter"
+      :verse="noteEditorVerse"
+      :char-start="noteEditorCharStart"
+      :char-end="noteEditorCharEnd"
+      :edit-note="noteEditTarget"
+      @saved="noteStore.loadForPassage(book, chapter)"
+    />
   </div>
 </template>
