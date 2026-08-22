@@ -93,10 +93,22 @@ export const laravelProvider = {
  *
  * Backend:  { data: { reference, version, verses[] }, meta: { provider, cached } }
  * Returned: { reference, version, verses[], meta: { provider, cached } }
+ *
+ * The backend names the verse number field `verse`; every component in the
+ * app (VerseBlock, useTextSelection, noteStore) expects `number`. We map it
+ * here so providers stay interchangeable.
  */
 function unwrapEnvelope(envelope) {
   const { data, meta } = envelope ?? {}
-  return { ...(data ?? {}), meta }
+  const payload = data ?? {}
+  return {
+    ...payload,
+    verses: (payload.verses ?? []).map(v => ({
+      ...v,
+      number: v.number ?? v.verse,
+    })),
+    meta,
+  }
 }
 
 export default laravelProvider
