@@ -11,6 +11,7 @@ import { useToolStore, TOOLS } from '@/stores/tool'
 import { useUndoRedoStore } from '@/stores/undoRedo'
 import { usePdfExport } from '@/composables/usePdfExport'
 import { useTextSelection } from '@/composables/useTextSelection'
+import { extractPhrase } from '@/lib/verseSegments'
 import { useObservable } from '@/composables/useObservable'
 import { useStudySession } from '@/composables/useStudySession'
 import VerseBlock from './VerseBlock.vue'
@@ -50,6 +51,7 @@ const noteEditorOpen = ref(false)
 const noteEditorVerse = ref(null)
 const noteEditorCharStart = ref(null)
 const noteEditorCharEnd = ref(null)
+const noteEditorQuote = ref(null)       // Selected words a phrase note is about
 const noteEditTarget = ref(null)        // Note being edited (null = create)
 
 // ── Notes context ─────────────────────────────────────────────────────────────
@@ -161,7 +163,7 @@ const annotations = useObservable(
 )
 
 // Text-tool selection resolver (highlight / underline)
-const { resolveSelection } = useTextSelection(containerRef)
+const { resolveSelection, resolvePhraseSelection } = useTextSelection(containerRef)
 
 // Typed note modal state
 const noteModalOpen = ref(false)
@@ -248,6 +250,21 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 // ─── Highlight / Underline ────────────────────────────────────────────────────
 function onPointerUp(evt) {
   if (tool.activeTool === TOOLS.PEN) return
+
+  // Note tool: selecting a word or phrase opens the note dialog anchored to
+  // exactly those characters, mirroring the verse-number tap (PRD §5.3).
+  if (tool.activeTool === TOOLS.NOTE) {
+    const phrase = resolvePhraseSelection()
+    if (!phrase) return
+    openNoteEditor({
+      verse: phrase.verse,
+      charStart: phrase.charStart,
+      charEnd: phrase.charEnd,
+      quote: phrase.text
+    })
+    return
+  }
+
   const selections = resolveSelection()
   if (!selections) return
   saveHighlight(selections)
@@ -319,15 +336,37 @@ async function onErase(localId) {
 
 // ─── Note popup helpers ───────────────────────────────────────────────────────
 
-function openNotePopup(verseNumber) {
-  notePopupNotes.value = noteStore.notesByVerse[verseNumber] ?? []
+/**
+ * The words a phrase-anchored note points at, resolved from its char range
+ * against the loaded passage text (nothing is stored server-side).
+ */
+function quoteForNote(note) {
+  if (note?.char_start == null || note?.char_end == null) return null
+  const verse = verses.value.find((v) => v.number === note.verse)
+  if (!verse) return null
+  return extractPhrase(verse.text, note.char_start, note.char_end)
+}
+
+function showNotesInPopup(notes) {
+  notePopupNotes.value = notes.map((note) => ({ ...note, quote: quoteForNote(note) }))
   if (notePopupNotes.value.length) notePopupOpen.value = true
 }
 
-function openNoteEditor({ verse = null, charStart = null, charEnd = null, editNote = null } = {}) {
+function openNotePopup(verseNumber) {
+  showNotesInPopup(noteStore.verseNotesByVerse[verseNumber] ?? [])
+}
+
+/** Tapping the dotted underline opens just that phrase's note. */
+function onPhraseNoteTap(noteLocalId) {
+  const note = noteStore.passageNotes.find((n) => n.localId === noteLocalId)
+  if (note) showNotesInPopup([note])
+}
+
+function openNoteEditor({ verse = null, charStart = null, charEnd = null, quote = null, editNote = null } = {}) {
   noteEditorVerse.value = verse
   noteEditorCharStart.value = charStart
   noteEditorCharEnd.value = charEnd
+  noteEditorQuote.value = quote ?? quoteForNote(editNote)
   noteEditTarget.value = editNote
   noteEditorOpen.value = true
 }
@@ -341,7 +380,7 @@ function onVerseTap(verseNumber) {
     return
   }
 
-  const hasUserNote = !!(noteStore.notesByVerse[verseNumber]?.length)
+  const hasUserNote = !!(noteStore.verseNotesByVerse[verseNumber]?.length)
   const hasCommentary = !!(studyNotes.value?.verses?.[verseNumber])
 
   if (hasCommentary && hasUserNote) {
@@ -536,9 +575,11 @@ async function handleExportPdf() {
                 :verse="verse"
                 :font-size="settings.fontSize"
                 :line-height="settings.lineHeight"
-                :has-note="!!(noteStore.notesByVerse[verse.number]?.length)"
+                :has-note="!!(noteStore.verseNotesByVerse[verse.number]?.length)"
+                :phrase-notes="noteStore.phraseNotesByVerse[verse.number] ?? []"
                 @verse-tap="onVerseTap"
                 @note-dot-tap="onNoteDotTap"
+                @phrase-note-tap="onPhraseNoteTap"
               />
             </p>
           </div>
@@ -637,6 +678,7 @@ async function handleExportPdf() {
       :verse="noteEditorVerse"
       :char-start="noteEditorCharStart"
       :char-end="noteEditorCharEnd"
+      :quote="noteEditorQuote"
       :edit-note="noteEditTarget"
       @saved="noteStore.loadForPassage(book, chapter)"
     />

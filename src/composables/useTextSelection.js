@@ -1,17 +1,31 @@
 import { useToolStore, TOOLS } from '@/stores/tool'
 
 /**
- * Highlighter & Underline tools (PRD §5.2): "Tap+drag to select text range".
- * Scripture is rendered as real, selectable DOM text (not canvas text) —
- * this reads the browser's native Selection, resolves it to a verse
- * element + char range, and returns the DOMRects needed to position the
- * highlight/underline band on the Konva overlay (PRD §6.4).
+ * Resolves the browser's native text Selection onto scripture verses.
  *
- * Verses render inline, one after another, inside a single paragraph — so a
- * natural drag-select very often crosses a verse boundary. resolveSelection
- * therefore returns one entry PER VERSE the selection touches (clipped to
- * that verse's own text), instead of assuming the whole selection sits
- * inside a single `[data-verse]` element.
+ * Two consumers:
+ *
+ *   resolveSelection()        Highlighter & Underline tools (PRD §5.2) —
+ *                             "Tap+drag to select text range". Returns the
+ *                             DOMRects needed to draw the band on the Konva
+ *                             overlay (PRD §6.4), one entry per verse the
+ *                             drag crosses.
+ *
+ *   resolvePhraseSelection()  Note tool (PRD §5.3) — "comment on a word or
+ *                             phrase". Returns a single phrase anchor
+ *                             (verse + char range + the selected words) for
+ *                             the note editor to attach a note to.
+ *
+ * Scripture is rendered as real, selectable DOM text (not canvas text), and
+ * verses render inline one after another inside a single paragraph — so a
+ * natural drag-select very often crosses a verse boundary. Both resolvers
+ * therefore clip the user's range to individual `[data-verse]` elements
+ * rather than assuming the selection sits inside one.
+ *
+ * Char offsets are measured against the verse's `.scripture-text` element,
+ * not the whole verse span, so they exclude the verse number and line up
+ * with the rendered text that `lib/verseSegments.js` re-splits when drawing
+ * phrase underlines.
  */
 export function useTextSelection(containerRef) {
   const tool = useToolStore()
@@ -20,42 +34,18 @@ export function useTextSelection(containerRef) {
   function resolveSelection() {
     if (![TOOLS.HIGHLIGHTER, TOOLS.UNDERLINE].includes(tool.activeTool)) return null
 
-    const selection = window.getSelection()
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
-    if (!containerRef.value) return null
+    const context = readSelection(containerRef)
+    if (!context) return null
 
-    const range = selection.getRangeAt(0)
-
-    // Every verse element the selection overlaps, in document order.
-    const verseEls = Array.from(containerRef.value.querySelectorAll('[data-verse]'))
-      .filter((el) => range.intersectsNode(el))
-
-    if (verseEls.length === 0) {
-      selection.removeAllRanges()
-      return null
-    }
-
-    const containerRect = containerRef.value.getBoundingClientRect()
+    const { selection, range, verseEls, containerRect } = context
     const results = []
 
     for (const verseEl of verseEls) {
-      // Clip the user's range down to just this verse's contents so a
-      // selection spanning verses 1–3 produces three separate highlights,
-      // each positioned/scoped to its own verse.
-      const verseRange = document.createRange()
-      verseRange.selectNodeContents(verseEl)
+      const verseRange = clipRangeTo(range, verseEl)
+      if (!verseRange) continue
 
-      if (range.compareBoundaryPoints(Range.START_TO_START, verseRange) > 0) {
-        verseRange.setStart(range.startContainer, range.startOffset)
-      }
-      if (range.compareBoundaryPoints(Range.END_TO_END, verseRange) < 0) {
-        verseRange.setEnd(range.endContainer, range.endOffset)
-      }
-
-      if (verseRange.collapsed) continue
-
-      const { charStart, charEnd } = charOffsetsWithinVerse(verseEl, verseRange)
-      if (charStart === charEnd) continue
+      const offsets = charOffsetsWithinVerse(verseEl, range)
+      if (!offsets) continue
 
       const rects = Array.from(verseRange.getClientRects()).map((r) => ({
         x: r.left - containerRect.left,
@@ -69,8 +59,8 @@ export function useTextSelection(containerRef) {
         book: verseEl.dataset.book,
         chapter: Number(verseEl.dataset.chapter),
         verse: Number(verseEl.dataset.verse),
-        charStart,
-        charEnd,
+        charStart: offsets.charStart,
+        charEnd: offsets.charEnd,
         rects
       })
     }
@@ -80,20 +70,117 @@ export function useTextSelection(containerRef) {
     return results.length > 0 ? results : null
   }
 
-  return { resolveSelection }
+  /**
+   * Resolves the current selection to ONE phrase anchor for the Note tool.
+   *
+   * A note record carries a single verse plus a char range, so a selection
+   * dragged across a verse boundary is anchored to the verse it STARTS in
+   * and clipped to that verse's text. `spansMultipleVerses` reports when
+   * that clipping happened so the UI can say so.
+   *
+   * @returns {{book: string, chapter: number, verse: number,
+   *            charStart: number, charEnd: number, text: string,
+   *            spansMultipleVerses: boolean} | null}
+   */
+  function resolvePhraseSelection() {
+    if (tool.activeTool !== TOOLS.NOTE) return null
+
+    const context = readSelection(containerRef)
+    if (!context) return null
+
+    const { selection, range, verseEls } = context
+
+    let anchor = null
+    for (const verseEl of verseEls) {
+      const offsets = charOffsetsWithinVerse(verseEl, range)
+      if (!offsets) continue
+      anchor = {
+        book: verseEl.dataset.book,
+        chapter: Number(verseEl.dataset.chapter),
+        verse: Number(verseEl.dataset.verse),
+        charStart: offsets.charStart,
+        charEnd: offsets.charEnd,
+        text: offsets.text,
+        spansMultipleVerses: verseEls.length > 1
+      }
+      break
+    }
+
+    selection.removeAllRanges()
+
+    return anchor
+  }
+
+  return { resolveSelection, resolvePhraseSelection }
 }
 
-/** Walks the verse element's text content to find the Range's char offsets. */
+// ── Internals ────────────────────────────────────────────────────────────────
+
+/** Shared guard: a live, non-collapsed selection overlapping at least one verse. */
+function readSelection(containerRef) {
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+  if (!containerRef.value) return null
+
+  const range = selection.getRangeAt(0)
+
+  const verseEls = Array.from(containerRef.value.querySelectorAll('[data-verse]'))
+    .filter((el) => range.intersectsNode(el))
+
+  if (verseEls.length === 0) {
+    selection.removeAllRanges()
+    return null
+  }
+
+  return {
+    selection,
+    range,
+    verseEls,
+    containerRect: containerRef.value.getBoundingClientRect()
+  }
+}
+
+/**
+ * Clips the user's range down to one element's contents, so a selection
+ * spanning verses 1–3 produces three separate results, each scoped to its
+ * own verse. Returns null when nothing of the range falls inside.
+ */
+function clipRangeTo(range, element) {
+  const bounds = document.createRange()
+  bounds.selectNodeContents(element)
+
+  if (range.compareBoundaryPoints(Range.START_TO_START, bounds) > 0) {
+    bounds.setStart(range.startContainer, range.startOffset)
+  }
+  if (range.compareBoundaryPoints(Range.END_TO_END, bounds) < 0) {
+    bounds.setEnd(range.endContainer, range.endOffset)
+  }
+
+  return bounds.collapsed ? null : bounds
+}
+
+/**
+ * Char offsets of the selection within a verse's rendered text.
+ *
+ * Measured against `.scripture-text` so the verse number (and the note
+ * margin dot) are excluded — offset 0 is the first letter of scripture.
+ */
 function charOffsetsWithinVerse(verseEl, range) {
+  const textEl = verseEl.querySelector('.scripture-text') ?? verseEl
+  const clipped = clipRangeTo(range, textEl)
+  if (!clipped) return null
+
   const preStart = document.createRange()
-  preStart.selectNodeContents(verseEl)
-  preStart.setEnd(range.startContainer, range.startOffset)
+  preStart.selectNodeContents(textEl)
+  preStart.setEnd(clipped.startContainer, clipped.startOffset)
   const charStart = preStart.toString().length
 
   const preEnd = document.createRange()
-  preEnd.selectNodeContents(verseEl)
-  preEnd.setEnd(range.endContainer, range.endOffset)
+  preEnd.selectNodeContents(textEl)
+  preEnd.setEnd(clipped.endContainer, clipped.endOffset)
   const charEnd = preEnd.toString().length
 
-  return { charStart, charEnd }
+  if (charEnd <= charStart) return null
+
+  return { charStart, charEnd, text: clipped.toString() }
 }

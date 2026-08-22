@@ -128,3 +128,103 @@ describe('useTextSelection — cross-verse selection', () => {
     expect(resolveSelection()).toBeNull()
   })
 })
+
+/**
+ * Note tool — "comment on a word or phrase" (PRD §5.3).
+ *
+ * resolvePhraseSelection() turns a drag-selection into a single note anchor:
+ * verse + char range + the selected words. Offsets are measured from the
+ * start of `.scripture-text`, so the verse number never counts toward them.
+ */
+describe('useTextSelection — phrase selection for the Note tool', () => {
+  let container
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    document.body.innerHTML = ''
+    container = buildPassageDom()
+    stubRangeLayout(window.Range.prototype)
+    useToolStore().setTool(TOOLS.NOTE)
+  })
+
+  function selectWithinVerseOne(start, end) {
+    const textNode = container.querySelector('[data-verse="1"] .scripture-text').firstChild
+    const range = document.createRange()
+    range.setStart(textNode, start)
+    range.setEnd(textNode, end)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
+
+  it('resolves a selected phrase to a verse anchor with char offsets and text', () => {
+    selectWithinVerseOne(0, 6) // "Better"
+    const { resolvePhraseSelection } = useTextSelection({ value: container })
+
+    const anchor = resolvePhraseSelection()
+
+    expect(anchor).toEqual({
+      book: 'PRO',
+      chapter: 19,
+      verse: 1,
+      charStart: 0,
+      charEnd: 6,
+      text: 'Better',
+      spansMultipleVerses: false,
+    })
+  })
+
+  it('measures offsets from the scripture text, excluding the verse number', () => {
+    selectWithinVerseOne(9, 13) // "poor"
+    const { resolvePhraseSelection } = useTextSelection({ value: container })
+
+    const anchor = resolvePhraseSelection()
+
+    expect(anchor.text).toBe('poor')
+    expect(anchor.charStart).toBe(9)
+    expect(anchor.charEnd).toBe(13)
+  })
+
+  it('anchors a cross-verse drag to the verse it starts in and flags the clipping', () => {
+    const verse1Text = container.querySelector('[data-verse="1"] .scripture-text').firstChild
+    const verse2Text = container.querySelector('[data-verse="2"] .scripture-text').firstChild
+    const range = document.createRange()
+    range.setStart(verse1Text, 7)
+    range.setEnd(verse2Text, 9)
+    const selection = window.getSelection()
+    selection.removeAllRanges()
+    selection.addRange(range)
+
+    const { resolvePhraseSelection } = useTextSelection({ value: container })
+    const anchor = resolvePhraseSelection()
+
+    expect(anchor.verse).toBe(1)
+    expect(anchor.charStart).toBe(7)
+    expect(anchor.spansMultipleVerses).toBe(true)
+    expect(anchor.text).toBe('a poor man who walks with integrity')
+  })
+
+  it('clears the selection once resolved so the drag does not linger', () => {
+    selectWithinVerseOne(0, 6)
+    const { resolvePhraseSelection } = useTextSelection({ value: container })
+
+    resolvePhraseSelection()
+
+    expect(window.getSelection().rangeCount).toBe(0)
+  })
+
+  it('returns null when the Note tool is not the active tool', () => {
+    useToolStore().setTool(TOOLS.HIGHLIGHTER)
+    selectWithinVerseOne(0, 6)
+
+    const { resolvePhraseSelection } = useTextSelection({ value: container })
+    expect(resolvePhraseSelection()).toBeNull()
+  })
+
+  it('returns null for a tap (collapsed selection) rather than opening a dialog', () => {
+    selectWithinVerseOne(4, 4)
+
+    const { resolvePhraseSelection } = useTextSelection({ value: container })
+    expect(resolvePhraseSelection()).toBeNull()
+  })
+})

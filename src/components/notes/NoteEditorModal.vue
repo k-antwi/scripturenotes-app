@@ -18,6 +18,8 @@ const props = defineProps({
   verse:     { type: Number,  default: null },
   charStart: { type: Number,  default: null },
   charEnd:   { type: Number,  default: null },
+  // The selected words a phrase-anchored note is about, shown as context.
+  quote:     { type: String,  default: null },
   // Pass an existing note to edit it
   editNote:  { type: Object,  default: null },
 })
@@ -99,6 +101,11 @@ async function addNewNotebook() {
   addingNb.value = false
 }
 
+const dialogTitle = computed(() => {
+  if (props.editNote) return 'Edit note'
+  return props.quote ? 'Add note on phrase' : 'Add note'
+})
+
 async function save() {
   if (!body.value.trim()) return
   saving.value = true
@@ -144,8 +151,16 @@ async function save() {
 </script>
 
 <template>
-  <Dialog :model-value="modelValue" title="Add note" @update:model-value="$emit('update:modelValue', $event)">
+  <Dialog :model-value="modelValue" :title="dialogTitle" @update:model-value="$emit('update:modelValue', $event)">
     <div class="flex flex-col gap-4">
+      <!-- Selected phrase — the words this note is anchored to -->
+      <blockquote
+        v-if="quote"
+        class="border-l-2 border-accent bg-secondary/60 px-3 py-2 font-scripture text-sm italic text-muted-foreground"
+      >
+        &ldquo;{{ quote }}&rdquo;
+      </blockquote>
+
       <!-- Title -->
       <Input
         v-model="title"

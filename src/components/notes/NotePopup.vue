@@ -24,9 +24,8 @@ const activeNote = computed(() => props.notes[activeIndex.value] ?? null)
 
 const reference = computed(() => {
   if (!activeNote.value?.book) return null
-  const parts = [activeNote.value.book, activeNote.value.chapter]
-  if (activeNote.value.verse) parts.push(`:${activeNote.value.verse}`)
-  return parts.join(' ')
+  const base = `${activeNote.value.book} ${activeNote.value.chapter}`
+  return activeNote.value.verse ? `${base}:${activeNote.value.verse}` : base
 })
 
 function close() {
@@ -76,6 +75,14 @@ function goToPassage() {
           Note {{ i + 1 }}
         </button>
       </div>
+
+      <!-- Selected phrase — present on phrase-anchored notes -->
+      <blockquote
+        v-if="activeNote.quote"
+        class="border-l-2 border-accent bg-secondary/60 px-3 py-2 font-scripture text-sm italic text-muted-foreground"
+      >
+        &ldquo;{{ activeNote.quote }}&rdquo;
+      </blockquote>
 
       <!-- Title -->
       <h2 v-if="activeNote.title" class="text-base font-semibold text-foreground">

@@ -122,7 +122,29 @@ export const useNoteStore = defineStore('notes', () => {
     passageNotes.value.filter((n) => n.char_start != null && n.char_end != null)
   )
 
+  /** Whole-verse notes (no char range) — these drive the margin dot. */
+  const verseNotesByVerse = computed(() => groupByVerse(passageNotes.value, false))
+
+  /**
+   * Phrase-anchored notes (char range present) — these are underlined in
+   * place inside the verse text (PRD §5.3).
+   */
+  const phraseNotesByVerse = computed(() => groupByVerse(passageNotes.value, true))
+
   // ── Internals ──────────────────────────────────────────────────────────────
+
+  function groupByVerse(notes, wantPhraseNotes) {
+    const map = {}
+    for (const note of notes) {
+      if (!note.book) continue  // standalone
+      if (note.verse == null) continue
+      const isPhraseNote = note.char_start != null && note.char_end != null
+      if (isPhraseNote !== wantPhraseNotes) continue
+      if (!map[note.verse]) map[note.verse] = []
+      map[note.verse].push(note)
+    }
+    return map
+  }
 
   async function _resolveRemoteNotebookIds(localIds) {
     const rows = await db.notebooks.where('localId').anyOf(localIds).toArray()
@@ -145,6 +167,6 @@ export const useNoteStore = defineStore('notes', () => {
     passageNotes, activeNote, notebooks,
     loadForPassage, saveNote, updateNote, deleteNote,
     loadNotebooks, createNotebook,
-    notesByVerse, notesByCharRange,
+    notesByVerse, notesByCharRange, verseNotesByVerse, phraseNotesByVerse,
   }
 })

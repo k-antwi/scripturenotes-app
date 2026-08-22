@@ -36,16 +36,32 @@ vi.mock('@/stores/settings', () => ({
   })
 }))
 
+// Mutable so a test can switch the reader into Note mode.
+const toolState = { activeTool: 'none', activeColour: '#000', opacity: 1 }
+
 vi.mock('@/stores/tool', () => {
   const TOOLS = {
     NONE: 'none', HIGHLIGHTER: 'highlighter', PEN: 'pen',
     UNDERLINE: 'underline', SHAPE: 'shape', NOTE: 'note', ERASER: 'eraser'
   }
-  return {
-    TOOLS,
-    useToolStore: () => ({ activeTool: TOOLS.NONE, activeColour: '#000', opacity: 1 })
-  }
+  return { TOOLS, useToolStore: () => toolState }
 })
+
+// vue-router — ScriptureReader reads route.query.noteId for the context bar.
+vi.mock('vue-router', () => ({
+  useRoute: () => ({ query: {} }),
+  useRouter: () => ({ push: vi.fn() })
+}))
+
+// Note store — the reader reads grouped notes and reloads on passage change.
+const noteStoreState = {
+  passageNotes: [],
+  verseNotesByVerse: {},
+  phraseNotesByVerse: {},
+  notesByVerse: {},
+  loadForPassage: vi.fn()
+}
+vi.mock('@/stores/noteStore', () => ({ useNoteStore: () => noteStoreState }))
 
 // ── Repository / composable mocks ─────────────────────────────────────────────
 const MOCK_PASSAGE = {
@@ -64,14 +80,26 @@ vi.mock('@/lib/annotationRepository', () => ({
   default: { create: vi.fn(), remove: vi.fn() }
 }))
 
+const emptyTable = () => ({
+  where: vi.fn().mockReturnValue({
+    filter: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }),
+    toArray: vi.fn().mockResolvedValue([]),
+    first: vi.fn().mockResolvedValue(null)
+  }),
+  orderBy: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) })
+})
+
 vi.mock('@/lib/db', () => ({
-  db: { annotations: { where: vi.fn().mockReturnValue({ filter: vi.fn().mockReturnValue({ toArray: vi.fn().mockResolvedValue([]) }) }) } }
+  db: { annotations: emptyTable(), notes: emptyTable(), notebooks: emptyTable() }
 }))
 
 vi.mock('dexie', () => ({ liveQuery: vi.fn((fn) => fn()) }))
 
+const resolveSelection = vi.fn().mockReturnValue(null)
+const resolvePhraseSelection = vi.fn().mockReturnValue(null)
+
 vi.mock('@/composables/useTextSelection', () => ({
-  useTextSelection: () => ({ resolveSelection: vi.fn().mockReturnValue(null) })
+  useTextSelection: () => ({ resolveSelection, resolvePhraseSelection })
 }))
 
 vi.mock('@/composables/useObservable', () => ({
@@ -90,6 +118,14 @@ vi.mock('@/components/annotation/AnnotationCanvas.vue', () => ({ default: Stub }
 vi.mock('@/components/annotation/AnnotationToolbar.vue', () => ({ default: Stub }))
 vi.mock('@/components/annotation/NoteModal.vue', () => ({ default: Stub }))
 vi.mock('@/components/notes/StudyNotesPanel.vue', () => ({ default: Stub }))
+vi.mock('@/components/notes/SaveNoteDialog.vue', () => ({ default: Stub }))
+vi.mock('@/components/notes/NotesContextBar.vue', () => ({ default: Stub }))
+vi.mock('@/components/notes/NotePopup.vue', () => ({ default: Stub }))
+const NoteEditorStub = defineComponent({
+  props: ['modelValue', 'book', 'chapter', 'verse', 'charStart', 'charEnd', 'quote', 'editNote'],
+  template: '<div class="note-editor-stub" />'
+})
+vi.mock('@/components/notes/NoteEditorModal.vue', () => ({ default: NoteEditorStub }))
 vi.mock('@/components/ui/sheet', () => ({ Sheet: Stub }))
 vi.mock('../VerseBlock.vue', () => ({ default: Stub }))
 vi.mock('../TranslationSelector.vue', () => ({ default: Stub }))
@@ -162,7 +198,13 @@ describe('ScriptureReader — canvas sizing', () => {
     // The fix: the watcher does it lazily. onMounted no longer calls observe.
     // We verify observe() is not called synchronously at mount time (before
     // flushPromises), because the element doesn't exist yet.
-    await mountReader()
+    // Mount synchronously — awaiting anything here would let load() resolve
+    // and the container watcher fire before we can check.
+    const { default: ScriptureReader } = await import('../ScriptureReader.vue')
+    wrapper = mount(ScriptureReader, {
+      props: { book: 'PRO', chapter: 19 },
+      global: { plugins: [createPinia()] }
+    })
 
     // At this point loading=true, passage not yet resolved
     const observerInstance = MockResizeObserver.mock.instances[0]
@@ -182,5 +224,85 @@ describe('ScriptureReader — canvas sizing', () => {
     const observerInstance = MockResizeObserver.mock.instances[0]
     wrapper.unmount()
     expect(observerInstance.disconnect).toHaveBeenCalled()
+  })
+})
+
+/**
+ * Note tool — commenting on a highlighted word or phrase (PRD §5.3).
+ *
+ * Selecting text with the Note tool active must open the same note dialog a
+ * verse tap opens, but anchored to the selected characters.
+ */
+describe('ScriptureReader — phrase-anchored notes', () => {
+  let wrapper
+
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    MockResizeObserver.mockClear()
+    toolState.activeTool = 'note'
+    resolveSelection.mockClear().mockReturnValue(null)
+    resolvePhraseSelection.mockClear().mockReturnValue(null)
+  })
+
+  afterEach(() => {
+    toolState.activeTool = 'none'
+    wrapper?.unmount()
+  })
+
+  async function mountReader() {
+    const { default: ScriptureReader } = await import('../ScriptureReader.vue')
+    wrapper = mount(ScriptureReader, {
+      props: { book: 'PRO', chapter: 19 },
+      global: { plugins: [createPinia()] }
+    })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  /** The scripture text + canvas wrapper that carries @pointerup. */
+  function textArea() {
+    return wrapper.find('.relative.flex.flex-1.overflow-hidden')
+  }
+
+  it('opens the note editor anchored to the selected phrase', async () => {
+    resolvePhraseSelection.mockReturnValue({
+      book: 'PRO', chapter: 19, verse: 1,
+      charStart: 9, charEnd: 13, text: 'poor', spansMultipleVerses: false
+    })
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+
+    const editor = wrapper.findComponent(NoteEditorStub)
+    expect(editor.props()).toMatchObject({
+      modelValue: true,
+      verse: 1,
+      charStart: 9,
+      charEnd: 13,
+      quote: 'poor'
+    })
+  })
+
+  it('does not save a highlight when the Note tool is active', async () => {
+    resolvePhraseSelection.mockReturnValue({
+      book: 'PRO', chapter: 19, verse: 1,
+      charStart: 0, charEnd: 6, text: 'Better', spansMultipleVerses: false
+    })
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+
+    expect(resolveSelection).not.toHaveBeenCalled()
+  })
+
+  it('leaves the editor closed when the selection resolves to nothing (a tap)', async () => {
+    resolvePhraseSelection.mockReturnValue(null)
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+
+    const editor = wrapper.findComponent(NoteEditorStub)
+    expect(editor.props('modelValue')).toBe(false)
   })
 })
