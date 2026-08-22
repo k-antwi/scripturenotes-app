@@ -69,9 +69,9 @@ function onPointerDown(konvaEvt) {
   const coords = getNativeCoords(konvaEvt)
   const container = stageRef.value.getStage().container()
   if (tool.activeTool === TOOLS.PEN) {
-    startStroke(coords, container)
+    startStroke(coords, container, props.scrollTop)
   } else if (tool.activeTool === TOOLS.SHAPE) {
-    startShape(coords, container)
+    startShape(coords, container, props.scrollTop)
   }
 }
 
@@ -81,9 +81,9 @@ function onPointerMove(konvaEvt) {
   const coords = getNativeCoords(konvaEvt)
   const container = stageRef.value.getStage().container()
   if (tool.activeTool === TOOLS.PEN) {
-    extendStroke(coords, container)
+    extendStroke(coords, container, props.scrollTop)
   } else if (tool.activeTool === TOOLS.SHAPE) {
-    extendShape(coords, container)
+    extendShape(coords, container, props.scrollTop)
   }
 }
 

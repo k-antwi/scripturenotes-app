@@ -20,30 +20,38 @@ export function useAnnotationCanvas() {
   // FIX: accept a coords object { clientX, clientY, pressure } instead of a
   // full PointerEvent — works for both mouse and touch (Konva wraps them
   // differently and touch events have no top-level clientX).
-  function coordsToTriple(coords, canvasEl) {
+  //
+  // FIX (scroll offset): the Konva stage container is pinned to the top of
+  // the reader column, so `clientY - rect.top` is a VIEWPORT offset. Every
+  // annotation is stored in SCROLL space (see saveHighlight, which adds
+  // scrollTop to each rect) and the drawing layer is rendered with
+  // `y: -scrollTop`. Without adding scrollTop back here, a stroke drawn on a
+  // scrolled chapter was stored — and drawn live — scrollTop pixels above the
+  // pointer, so circling a word circled the line above it.
+  function coordsToTriple(coords, canvasEl, scrollTop = 0) {
     const rect = canvasEl.getBoundingClientRect()
     const x = coords.clientX - rect.left
-    const y = coords.clientY - rect.top
+    const y = coords.clientY - rect.top + scrollTop
     const pressure = coords.pressure > 0 ? coords.pressure : 0.5
     return [x, y, pressure]
   }
 
   // Returns just [x, y] — shape points don't need pressure.
-  function coordsToPoint(coords, canvasEl) {
-    const [x, y] = coordsToTriple(coords, canvasEl)
+  function coordsToPoint(coords, canvasEl, scrollTop = 0) {
+    const [x, y] = coordsToTriple(coords, canvasEl, scrollTop)
     return [x, y]
   }
 
-  function startStroke(coords, canvasEl) {
+  function startStroke(coords, canvasEl, scrollTop = 0) {
     if (tool.activeTool !== TOOLS.PEN) return
     isDrawing.value = true
-    points.value = [coordsToTriple(coords, canvasEl)]
+    points.value = [coordsToTriple(coords, canvasEl, scrollTop)]
     livePathData.value = ''
   }
 
-  function extendStroke(coords, canvasEl) {
+  function extendStroke(coords, canvasEl, scrollTop = 0) {
     if (!isDrawing.value) return
-    points.value.push(coordsToTriple(coords, canvasEl))
+    points.value.push(coordsToTriple(coords, canvasEl, scrollTop))
     livePathData.value = computePath()
   }
 
@@ -89,17 +97,17 @@ export function useAnnotationCanvas() {
   }
 
   // ── Shape (freehand lasso) ────────────────────────────────────────────────
-  function startShape(coords, canvasEl) {
+  function startShape(coords, canvasEl, scrollTop = 0) {
     if (tool.activeTool !== TOOLS.SHAPE) return
     isDrawingShape.value = true
-    const pt = coordsToPoint(coords, canvasEl)
+    const pt = coordsToPoint(coords, canvasEl, scrollTop)
     shapePoints.value = [pt]
     liveShapePoints.value = [pt]
   }
 
-  function extendShape(coords, canvasEl) {
+  function extendShape(coords, canvasEl, scrollTop = 0) {
     if (!isDrawingShape.value) return
-    const pt = coordsToPoint(coords, canvasEl)
+    const pt = coordsToPoint(coords, canvasEl, scrollTop)
     shapePoints.value.push(pt)
     // Spread to trigger Vue reactivity on the array reference
     liveShapePoints.value = [...shapePoints.value]

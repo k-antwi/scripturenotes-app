@@ -223,3 +223,70 @@ describe('useAnnotationCanvas — shape drawing', () => {
     expect(endShape({ canvasWidth: 400, canvasHeight: 800 })).toBeNull()
   })
 })
+
+/**
+ * REGRESSION — pen and shape strokes ignored the scroll position.
+ *
+ * The Konva stage container is pinned to the top of the reader column, so
+ * `clientY - rect.top` yields a VIEWPORT offset. Annotations are stored in
+ * SCROLL space (saveHighlight adds scrollTop to every highlight rect) and the
+ * drawing layer renders with `y: -scrollTop`. Because the pen path never
+ * added scrollTop back, a stroke drawn on a scrolled chapter was stored — and
+ * rendered live — scrollTop pixels ABOVE the pointer: circling a word circled
+ * the line above it. Highlights were unaffected, which is why only pen and
+ * shape drifted.
+ */
+describe('useAnnotationCanvas — scroll-space coordinates', () => {
+  it('[regression] pen points include the scroll offset', async () => {
+    mockActiveTool = TOOLS.PEN
+    const { startStroke, extendStroke, endStroke } = await freshComposable()
+
+    startStroke(makeCoords(50, 100), makeCanvas(0, 0), 400)
+    extendStroke(makeCoords(60, 110), makeCanvas(0, 0), 400)
+    extendStroke(makeCoords(70, 120), makeCanvas(0, 0), 400)
+    const stroke = endStroke({ canvasWidth: 375, canvasHeight: 2000 })
+
+    expect(stroke.points.map(([x, y]) => [x, y])).toEqual([
+      [50, 500], [60, 510], [70, 520]
+    ])
+  })
+
+  it('[regression] shape points include the scroll offset', async () => {
+    mockActiveTool = TOOLS.SHAPE
+    const { startShape, extendShape, endShape } = await freshComposable()
+
+    startShape(makeCoords(10, 20), makeCanvas(0, 0), 250)
+    extendShape(makeCoords(20, 30), makeCanvas(0, 0), 250)
+    extendShape(makeCoords(30, 40), makeCanvas(0, 0), 250)
+    const shape = endShape({ canvasWidth: 375, canvasHeight: 2000 })
+
+    expect(shape.data.points).toEqual([[10, 270], [20, 280], [30, 290]])
+  })
+
+  it('keeps the container offset and the scroll offset separate', async () => {
+    mockActiveTool = TOOLS.PEN
+    const { startStroke, extendStroke, endStroke } = await freshComposable()
+
+    // Column starts 60px down the viewport, chapter scrolled 200px.
+    startStroke(makeCoords(100, 160), makeCanvas(15, 60), 200)
+    extendStroke(makeCoords(101, 161), makeCanvas(15, 60), 200)
+    extendStroke(makeCoords(102, 162), makeCanvas(15, 60), 200)
+    const stroke = endStroke({ canvasWidth: 375, canvasHeight: 2000 })
+
+    expect(stroke.points[0].slice(0, 2)).toEqual([85, 300])
+  })
+
+  it('is unchanged at the top of a chapter, where the old behaviour was correct', async () => {
+    mockActiveTool = TOOLS.PEN
+    const { startStroke, extendStroke, endStroke } = await freshComposable()
+
+    startStroke(makeCoords(50, 100), makeCanvas(0, 0))
+    extendStroke(makeCoords(60, 110), makeCanvas(0, 0))
+    extendStroke(makeCoords(70, 120), makeCanvas(0, 0))
+    const stroke = endStroke({ canvasWidth: 375, canvasHeight: 2000 })
+
+    expect(stroke.points.map(([x, y]) => [x, y])).toEqual([
+      [50, 100], [60, 110], [70, 120]
+    ])
+  })
+})
