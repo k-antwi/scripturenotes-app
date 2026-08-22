@@ -38,14 +38,14 @@ db.version(1).stores({
   syncQueue: '++id, entityType, entityLocalId, action, createdAt, attempts'
 })
 
-// v2: passages/studyNotes are now also keyed by `source` (laravel | freeuse)
-// so switching Bible sources (PRD §11.5 / frontend source toggle) never
-// serves cached text fetched from the other backend under the same
-// book+chapter+translation combination. Old v1 rows are simply superseded —
-// they're disposable cache, not user data — so no upgrade() migration is needed.
+// v2: passages/studyNotes now keyed by `source` too — but Dexie cannot change
+// a table's primary key, so we drop the v1 tables and introduce new names.
+// The old rows are disposable cache; nothing is lost.
 db.version(2).stores({
-  passages: '[book+chapter+translation+source], fetchedAt',
-  studyNotes: '[book+chapter+translation+source]'
+  passages: null,
+  studyNotes: null,
+  passageCache: '[book+chapter+translation+source], fetchedAt',
+  studyNoteCache: '[book+chapter+translation+source]'
 })
 
 // v3: savedNotes — explicitly named study notes saved by the user from the reader.
@@ -77,6 +77,15 @@ db.version(5).stores({
   notes:
     '++localId, remoteId, userId, book, chapter, verse, char_start, char_end, updatedAt, dirty, deletedAt',
   noteNotebook: '++localId, noteLocalId, notebookLocalId, dirty',
+})
+
+// v6: compound [book+chapter] indexes on notes and annotations to satisfy
+// the queries in noteRepository.forPassage() and annotationRepository.forPassage().
+db.version(6).stores({
+  notes:
+    '++localId, remoteId, userId, [book+chapter], book, chapter, verse, char_start, char_end, updatedAt, dirty, deletedAt',
+  annotations:
+    '++localId, remoteId, userId, [book+chapter], book, chapter, verse, type, isShared, shareToken, updatedAt, dirty, deletedAt',
 })
 
 export default db

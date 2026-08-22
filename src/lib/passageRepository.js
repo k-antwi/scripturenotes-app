@@ -20,7 +20,7 @@ export const PassageRepository = {
     const resolvedSource = source ?? this._resolveSource()
     const cacheKey = { book, chapter, translation, source: resolvedSource }
 
-    const cached = await db.passages.get(cacheKey)
+    const cached = await db.passageCache.get(cacheKey)
     if (cached) {
       // Return immediately; refresh quietly in the background so stale
       // cached copies (e.g. corrected footnotes) eventually catch up.
@@ -31,7 +31,7 @@ export const PassageRepository = {
     try {
       const provider = getBibleProvider(resolvedSource)
       const data = await provider.getPassage(book, chapter, translation)
-      await db.passages.put({
+      await db.passageCache.put({
         book,
         chapter,
         translation,
@@ -52,7 +52,7 @@ export const PassageRepository = {
 
   async getNotes(book, chapter, translation, source = null) {
     const resolvedSource = source ?? this._resolveSource()
-    const cached = await db.studyNotes.get({ book, chapter, translation, source: resolvedSource })
+    const cached = await db.studyNoteCache.get({ book, chapter, translation, source: resolvedSource })
     if (cached) return cached.content
 
     try {
@@ -64,7 +64,7 @@ export const PassageRepository = {
         if (book === MOCK_NOTES.book && Number(chapter) === MOCK_NOTES.chapter) return MOCK_NOTES
         return null
       }
-      await db.studyNotes.put({ book, chapter, translation, source: resolvedSource, content: data })
+      await db.studyNoteCache.put({ book, chapter, translation, source: resolvedSource, content: data })
       return data
     } catch (err) {
       if (book === MOCK_NOTES.book && Number(chapter) === MOCK_NOTES.chapter) return MOCK_NOTES
@@ -105,7 +105,7 @@ export const PassageRepository = {
     try {
       const provider = getBibleProvider(source)
       const data = await provider.getPassage(book, chapter, translation)
-      await db.passages.put({
+      await db.passageCache.put({
         book,
         chapter,
         translation,

@@ -1,0 +1,16 @@
+{
+  "name": "Bible Study",
+  "short_name": "Bible Study",
+  "description": "Scripture Notes Bible Study App",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1B2A4A",
+  "theme_color": "#1B2A4A",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
