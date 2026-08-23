@@ -1,17 +1,23 @@
 <script setup>
+import { computed } from 'vue'
 import { BookOpen, NotebookPen, Bookmark, Clock, Settings } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import OfflineIndicator from './OfflineIndicator.vue'
+import { useReadingStore } from '@/stores/reading'
 
 const route = useRoute()
+const reading = useReadingStore()
 
-const tabs = [
-  { name: 'reader', label: 'Read', icon: BookOpen, to: '/read/PRO/19' },
+// The Read tab returns to whatever passage the user last had open, rather
+// than a fixed chapter — leaving the reader and coming back must not lose
+// their place.
+const tabs = computed(() => [
+  { name: 'reader', label: 'Read', icon: BookOpen, to: reading.lastPassagePath },
   { name: 'notes', label: 'Notes', icon: NotebookPen, to: '/notes' },
   { name: 'bookmarks', label: 'Saved', icon: Bookmark, to: '/bookmarks' },
   { name: 'history', label: 'History', icon: Clock, to: '/history' },
   { name: 'settings', label: 'Settings', icon: Settings, to: '/settings' }
-]
+])
 
 /**
  * Determine which bottom-tab is "active".

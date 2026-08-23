@@ -1,10 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useReadingStore } from '@/stores/reading'
 
 const routes = [
   {
+    // Land on the passage the user was last reading, not a fixed chapter.
     path: '/',
-    redirect: '/read/PRO/19'
+    redirect: () => useReadingStore().lastPassagePath
   },
   {
     // Book/Chapter picker → passage reader (PRD §5.1.1)

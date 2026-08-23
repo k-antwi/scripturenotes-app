@@ -151,7 +151,16 @@ async function save() {
 </script>
 
 <template>
-  <Dialog :model-value="modelValue" :title="dialogTitle" @update:model-value="$emit('update:modelValue', $event)">
+  <!--
+    dismissible=false: a half-written note must survive a stray tap on the
+    backdrop or an accidental Escape. Only the X button or Save closes it.
+  -->
+  <Dialog
+    :model-value="modelValue"
+    :title="dialogTitle"
+    :dismissible="false"
+    @update:model-value="$emit('update:modelValue', $event)"
+  >
     <div class="flex flex-col gap-4">
       <!-- Selected phrase — the words this note is anchored to -->
       <blockquote
