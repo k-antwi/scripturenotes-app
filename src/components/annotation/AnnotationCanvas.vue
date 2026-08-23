@@ -10,6 +10,12 @@ const props = defineProps({
   // FIX: receives the scroll position of the text container so the canvas
   // stage can translate its coordinate system to match scrolled content.
   scrollTop: { type: Number, default: 0 },
+  // Live geometry for highlight/underline annotations, re-derived from each
+  // annotation's verse + char anchor by lib/highlightGeometry.js. Passing it
+  // in (rather than reading a.data.rect here) is what keeps a highlight on its
+  // words when the text reflows at a different screen size or font size.
+  // Null means "no live geometry available" — fall back to the stored rects.
+  highlightBoxes: { type: Array, default: null },
   // When true: canvas accepts pointer events for drawing (Pen/Shape/Eraser).
   // When false: pointer-events:none lets text selection fall through to the DOM.
   drawMode: { type: Boolean, default: false }
@@ -31,8 +37,8 @@ function onBackgroundClick(konvaEvt) {
   // Add scrollTop back because stored rect coords are in full-scroll space
   const y = coords.clientY - rect.top + props.scrollTop
 
-  const target = hitTestHighlight(props.annotations, x, y)
-  if (target) emit('erase', target.localId)
+  const target = hitTestHighlight(highlightLayer.value, x, y)
+  if (target) emit('erase', target.localIds ?? target.localId)
 }
 
 const tool = useToolStore()
@@ -42,9 +48,23 @@ const {
   liveShapePoints, startShape, extendShape, endShape
 } = useAnnotationCanvas()
 
-const highlightAnnotations = computed(() =>
-  props.annotations.filter((a) => a.type === 'highlight' || a.type === 'underline')
-)
+// Prefer the live, text-anchored geometry. The fallback keeps this component
+// usable on its own (and renders records that predate the char anchor) by
+// reading the rect frozen into each annotation at the time it was drawn.
+const highlightLayer = computed(() => {
+  if (props.highlightBoxes) return props.highlightBoxes
+  return props.annotations
+    .filter((a) => a.type === 'highlight' || a.type === 'underline')
+    .filter((a) => a.data?.rect)
+    .map((a) => ({
+      key: `stored:${a.localId}`,
+      localIds: [a.localId],
+      type: a.type,
+      colour: a.colour,
+      opacity: a.data?.opacity ?? (a.type === 'underline' ? 1 : 0.35),
+      rect: a.data.rect
+    }))
+})
 const drawingAnnotations = computed(() =>
   props.annotations.filter((a) => a.type === 'pen' || a.type === 'shape')
 )
@@ -116,24 +136,29 @@ function pointsToFlatArray(points) {
       Highlights layer — positioned in the same coordinate space as the
       scrollable text.  The scrollTop offset is applied so highlights stay
       locked to their verse text as the user scrolls.
+
+      Rect values come from `highlightBoxes`, recomputed from each
+      annotation's verse + char range whenever the text reflows, so a
+      highlight tracks its words across screen sizes and font settings
+      instead of staying pinned to the pixels it was drawn at.
     -->
     <div
       class="absolute inset-x-0 top-0"
       :style="{ transform: `translateY(-${scrollTop}px)`, height: `${height}px`, pointerEvents: 'none' }"
     >
       <div
-        v-for="a in highlightAnnotations"
-        :key="a.localId"
+        v-for="box in highlightLayer"
+        :key="box.key"
         class="absolute rounded-[2px]"
         :style="{
-          left: `${a.data.rect?.x ?? 0}px`,
-          top: `${a.data.rect?.y ?? 0}px`,
-          width: `${a.data.rect?.width ?? 0}px`,
-          height: a.type === 'underline' ? '2px' : `${a.data.rect?.height ?? 0}px`,
-          background: a.type === 'highlight' ? a.colour : 'transparent',
-          borderBottom: a.type === 'underline' ? `2px solid ${a.colour}` : 'none',
-          opacity: a.type === 'highlight' ? (a.data.opacity ?? 0.35) : 1,
-          marginTop: a.type === 'underline' ? `${(a.data.rect?.height ?? 0) - 2}px` : '0'
+          left: `${box.rect.x}px`,
+          top: `${box.rect.y}px`,
+          width: `${box.rect.width}px`,
+          height: box.type === 'underline' ? '2px' : `${box.rect.height}px`,
+          background: box.type === 'highlight' ? box.colour : 'transparent',
+          borderBottom: box.type === 'underline' ? `2px solid ${box.colour}` : 'none',
+          opacity: box.type === 'highlight' ? box.opacity : 1,
+          marginTop: box.type === 'underline' ? `${box.rect.height - 2}px` : '0'
         }"
       />
     </div>

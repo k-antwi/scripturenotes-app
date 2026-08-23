@@ -12,6 +12,7 @@ import { useUndoRedoStore } from '@/stores/undoRedo'
 import { usePdfExport } from '@/composables/usePdfExport'
 import { useTextSelection } from '@/composables/useTextSelection'
 import { extractPhrase } from '@/lib/verseSegments'
+import { buildHighlightBoxes } from '@/lib/highlightGeometry'
 import { useObservable } from '@/composables/useObservable'
 import { useStudySession } from '@/composables/useStudySession'
 import VerseBlock from './VerseBlock.vue'
@@ -84,8 +85,15 @@ async function handleSaveNote({ type, name, noteLocalId }) {
 
 // containerRef is the scrollable text div — canvas is sized to match it
 const containerRef = ref(null)
+// The inner wrapper holding the verses. Watched separately from containerRef
+// because reflow (font size, column count, longer chapter) changes its height
+// without changing the scroll container's border box.
+const contentRef = ref(null)
 const canvasSize = ref({ width: 0, height: 0 })
 const scrollTopRef = ref(0)
+// Where each highlight/underline is drawn *right now*, re-derived from its
+// verse + char anchor. See lib/highlightGeometry.js.
+const highlightBoxes = ref([])
 const passage = ref(null)
 const studyNotes = ref(null)
 const loading = ref(true)
@@ -228,6 +236,54 @@ watch(containerRef, (el, prevEl) => {
 })
 onUnmounted(() => resizeObserver.disconnect())
 
+// ─── Highlight geometry ───────────────────────────────────────────────────────
+// A highlight is stored against the words it covers (verse + char range), the
+// same way a note is — so unlike the pixel rect it was drawn at, it survives a
+// reflow. The cost is that its rectangles have to be measured again from the
+// live DOM whenever that layout changes, which is what this does.
+function refreshHighlightGeometry() {
+  highlightBoxes.value = buildHighlightBoxes(containerRef.value, annotations.value)
+}
+
+/** Measure after Vue has flushed, so the DOM reflects the change that woke us. */
+async function refreshLayout() {
+  await nextTick()
+  measureCanvas()
+  refreshHighlightGeometry()
+}
+
+// Content reflow: font size, line height, column count, a longer chapter.
+// Kept on its own observer so the container observer's contract (one observed
+// element, disconnected on unmount) stays intact.
+const contentObserver = new ResizeObserver(refreshLayout)
+
+watch(contentRef, (el, prevEl) => {
+  if (prevEl) contentObserver.unobserve(prevEl)
+  if (el) {
+    contentObserver.observe(el)
+    refreshLayout()
+  }
+})
+onUnmounted(() => contentObserver.disconnect())
+
+// Annotations changing (a new highlight, an erase, a sync landing) needs the
+// boxes rebuilt even though nothing about the layout moved.
+watch(annotations, refreshLayout)
+
+// Reflows the ResizeObserver can miss or that need geometry re-measured even
+// when the box sizes happen to land the same: new passage text, and the
+// typography settings that re-wrap it.
+watch(
+  [passage, () => settings.fontSize, () => settings.lineHeight,
+    () => settings.twoColumnPreferred, showComparison],
+  refreshLayout
+)
+
+// Web fonts swap in after first paint; the metrics they bring shift every line.
+onMounted(() => {
+  document.fonts?.ready?.then(refreshLayout).catch(() => {})
+})
+
 // ─── Keyboard shortcuts (undo / redo) ────────────────────────────────────────
 function onKeydown(evt) {
   const ctrl = evt.ctrlKey || evt.metaKey
@@ -270,33 +326,47 @@ function onPointerUp(evt) {
   saveHighlight(selections)
 }
 
+/**
+ * Persists a highlight or underline as ONE record per verse, anchored to the
+ * characters it covers — the same anchor a note uses.
+ *
+ * It used to write one record per line box, freezing the pixel rectangle the
+ * words happened to occupy on the screen it was drawn on. That is why a
+ * highlight drifted off its text on a different screen size while a note never
+ * did. The line boxes are now re-measured at render time from the char range
+ * (lib/highlightGeometry.js), so how the text wraps is no longer baked in.
+ */
 async function saveHighlight(selections) {
   const scrollTop = containerRef.value?.scrollTop ?? 0
   const scrollLeft = containerRef.value?.scrollLeft ?? 0
 
   for (const sel of selections) {
-    for (const rect of sel.rects) {
-      const localId = await AnnotationRepository.create({
-        userId: auth.user?.id ?? 'local',
-        book: sel.book,
-        chapter: sel.chapter,
-        verse: sel.verse,
-        type: tool.activeTool === TOOLS.UNDERLINE ? 'underline' : 'highlight',
-        colour: tool.activeColour,
-        data: {
-          charStart: sel.charStart,
-          charEnd: sel.charEnd,
-          rect: {
-            x: rect.x + scrollLeft,
-            y: rect.y + scrollTop,
-            width: rect.width,
-            height: rect.height
-          },
-          opacity: tool.activeTool === TOOLS.HIGHLIGHTER ? 0.35 : 1
-        }
-      })
-      undoRedo.recordCreate(localId)
-    }
+    const first = sel.rects[0]
+    const localId = await AnnotationRepository.create({
+      userId: auth.user?.id ?? 'local',
+      book: sel.book,
+      chapter: sel.chapter,
+      verse: sel.verse,
+      type: tool.activeTool === TOOLS.UNDERLINE ? 'underline' : 'highlight',
+      colour: tool.activeColour,
+      data: {
+        charStart: sel.charStart,
+        charEnd: sel.charEnd,
+        // Kept only so a client running an older build (or one that cannot
+        // resolve the anchor) still draws something. Never read when the char
+        // range resolves against the rendered verse.
+        rect: first
+          ? {
+            x: first.x + scrollLeft,
+            y: first.y + scrollTop,
+            width: first.width,
+            height: first.height
+          }
+          : null,
+        opacity: tool.activeTool === TOOLS.HIGHLIGHTER ? 0.35 : 1
+      }
+    })
+    undoRedo.recordCreate(localId)
   }
 }
 
@@ -329,9 +399,16 @@ async function onShapeStrokeEnd(shape) {
 }
 
 // ─── Eraser ───────────────────────────────────────────────────────────────────
-async function onErase(localId) {
-  undoRedo.recordRemove(localId)
-  await AnnotationRepository.remove(localId)
+/**
+ * @param {number|Array<number>} target  a single annotation, or every record
+ *   behind one visible mark — older highlights were stored one row per line
+ *   box, and erasing a mark has to take all of them.
+ */
+async function onErase(target) {
+  for (const localId of Array.isArray(target) ? target : [target]) {
+    undoRedo.recordRemove(localId)
+    await AnnotationRepository.remove(localId)
+  }
 }
 
 // ─── Note popup helpers ───────────────────────────────────────────────────────
@@ -558,6 +635,7 @@ async function handleExportPdf() {
           ]"
         >
           <div
+            ref="contentRef"
             class="relative z-0 px-4 py-5"
             :class="!showComparison && settings.twoColumnPreferred ? 'md:columns-2 md:gap-8' : ''"
           >
@@ -588,6 +666,7 @@ async function handleExportPdf() {
         <!-- Canvas overlay — only on the primary column -->
         <AnnotationCanvas
           :annotations="annotations"
+          :highlight-boxes="highlightBoxes"
           :width="canvasSize.width"
           :height="canvasSize.height"
           :scroll-top="scrollTopRef"

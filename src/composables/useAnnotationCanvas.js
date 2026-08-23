@@ -140,16 +140,21 @@ export function useAnnotationCanvas() {
 }
 
 /**
- * Pure hit-test helper — returns the first highlight/underline annotation
- * whose stored rect contains the point (x, y) in scroll-space, or null.
+ * Pure hit-test helper — returns the first highlight/underline item whose rect
+ * contains the point (x, y) in scroll-space, or null.
+ *
+ * Accepts either shape: a render box from `lib/highlightGeometry.js` (rect at
+ * the top level, geometry re-derived from the text anchor) or a raw annotation
+ * record (rect nested under `data`). The eraser is fed the render boxes, so it
+ * targets where a highlight is drawn now rather than where it was first drawn.
  *
  * Exported so it can be unit-tested independently of the canvas component.
  */
-export function hitTestHighlight(annotations, x, y) {
-  if (!Array.isArray(annotations)) return null
-  return annotations.find((a) => {
+export function hitTestHighlight(items, x, y) {
+  if (!Array.isArray(items)) return null
+  return items.find((a) => {
     if (a.type !== 'highlight' && a.type !== 'underline') return false
-    const r = a.data?.rect
+    const r = a.rect ?? a.data?.rect
     if (!r) return false
     return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height
   }) ?? null
