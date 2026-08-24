@@ -191,6 +191,27 @@ describe('[regression] hitTestHighlight — eraser can target highlight/underlin
     expect(hitTestHighlight(undefined, 50, 50)).toBeNull()
   })
 
+  // Highlights are now text-anchored: the reader measures their rects from
+  // the DOM on every layout change and hands the eraser those derived bands
+  // instead of the annotation rows. An eraser tap must therefore hit-test
+  // against where the highlight IS, not where it was first drawn.
+  it('matches a derived band whose rect sits at the top level', () => {
+    const band = { key: '4-0', localId: 4, type: 'highlight', colour: '#E0B62E', rect: { x: 10, y: 20, width: 100, height: 18 } }
+    expect(hitTestHighlight([band], 50, 28).localId).toBe(4)
+    expect(hitTestHighlight([band], 200, 28)).toBeNull()
+  })
+
+  it('matches the correct line of a wrapped highlight that produced two bands', () => {
+    const bands = [
+      { key: '4-0', localId: 4, type: 'highlight', rect: { x: 120, y: 20, width: 80, height: 18 } },
+      { key: '4-1', localId: 4, type: 'highlight', rect: { x: 0, y: 38, width: 60, height: 18 } }
+    ]
+    // A tap on the second line still erases the one underlying annotation.
+    expect(hitTestHighlight(bands, 30, 45).localId).toBe(4)
+    // The gap left of the first line belongs to neither band.
+    expect(hitTestHighlight(bands, 30, 25)).toBeNull()
+  })
+
   it('skips annotations with no rect data without throwing', () => {
     const broken = { localId: 99, type: 'highlight', data: {} }
     expect(() => hitTestHighlight([broken], 50, 50)).not.toThrow()

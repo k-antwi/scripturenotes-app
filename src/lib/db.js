@@ -88,4 +88,48 @@ db.version(6).stores({
     '++localId, remoteId, userId, [book+chapter], book, chapter, verse, type, isShared, shareToken, updatedAt, dirty, deletedAt',
 })
 
+// v7: highlights and underlines become TEXT-ANCHORED (see lib/annotationAnchors.js).
+// Their pixel rect is no longer the source of truth — verse + charStart/charEnd is.
+//
+// Two things happen here:
+//
+//   1. Rows that already carry a char range are tagged anchorVersion 1, so the
+//      reader re-measures them from the DOM and they immediately stop drifting
+//      when the font size or column width changes. Rows without one keep
+//      anchorVersion 0 and continue to render from their stored rect.
+//
+//   2. The pixel era wrote ONE ROW PER LINE RECT, so a phrase wrapping across
+//      a line break produced two rows sharing the same char range. Re-measuring
+//      both would draw the same band twice (and double a highlight's opacity),
+//      so the duplicates are soft-deleted and the first row of each group wins.
+//      This is a local collapse of what were always duplicate representations;
+//      it deliberately does not enqueue server deletes, since the surviving row
+//      already describes the whole selection.
+db.version(7).stores({}).upgrade(async (tx) => {
+  const table = tx.table('annotations')
+  const rows = await table.toArray()
+  const seen = new Set()
+
+  for (const row of rows) {
+    if (row.type !== 'highlight' && row.type !== 'underline') continue
+    if (row.deletedAt) continue
+
+    const data = row.data ?? {}
+    const anchored =
+      typeof data.charStart === 'number' && typeof data.charEnd === 'number'
+
+    if (!anchored) {
+      await table.update(row.localId, { data: { ...data, anchorVersion: 0 } })
+      continue
+    }
+
+    const key = [row.book, row.chapter, row.verse, row.type, row.colour, data.charStart, data.charEnd].join('|')
+    const changes = { data: { ...data, anchorVersion: 1 } }
+    if (seen.has(key)) changes.deletedAt = new Date().toISOString()
+    else seen.add(key)
+
+    await table.update(row.localId, changes)
+  }
+})
+
 export default db

@@ -12,6 +12,11 @@ import { useUndoRedoStore } from '@/stores/undoRedo'
 import { usePdfExport } from '@/composables/usePdfExport'
 import { useTextSelection } from '@/composables/useTextSelection'
 import { extractPhrase } from '@/lib/verseSegments'
+import {
+  ANCHOR_VERSION,
+  computeLayoutKey,
+  resolveHighlightRects
+} from '@/lib/annotationAnchors'
 import { useObservable } from '@/composables/useObservable'
 import { useStudySession } from '@/composables/useStudySession'
 import VerseBlock from './VerseBlock.vue'
@@ -270,33 +275,33 @@ function onPointerUp(evt) {
   saveHighlight(selections)
 }
 
+/**
+ * Persists a highlight / underline as a TEXT ANCHOR, not as pixels.
+ *
+ * One row per verse-clipped selection — a phrase that wraps across a line
+ * break is still one annotation, because the line split is a fact about the
+ * current layout rather than about the annotation. The rects are rebuilt
+ * from the DOM by `resolveHighlightRects` on every layout change, so the
+ * band stays locked to its words when the font size, column width or
+ * comparison view changes.
+ */
 async function saveHighlight(selections) {
-  const scrollTop = containerRef.value?.scrollTop ?? 0
-  const scrollLeft = containerRef.value?.scrollLeft ?? 0
-
   for (const sel of selections) {
-    for (const rect of sel.rects) {
-      const localId = await AnnotationRepository.create({
-        userId: auth.user?.id ?? 'local',
-        book: sel.book,
-        chapter: sel.chapter,
-        verse: sel.verse,
-        type: tool.activeTool === TOOLS.UNDERLINE ? 'underline' : 'highlight',
-        colour: tool.activeColour,
-        data: {
-          charStart: sel.charStart,
-          charEnd: sel.charEnd,
-          rect: {
-            x: rect.x + scrollLeft,
-            y: rect.y + scrollTop,
-            width: rect.width,
-            height: rect.height
-          },
-          opacity: tool.activeTool === TOOLS.HIGHLIGHTER ? 0.35 : 1
-        }
-      })
-      undoRedo.recordCreate(localId)
-    }
+    const localId = await AnnotationRepository.create({
+      userId: auth.user?.id ?? 'local',
+      book: sel.book,
+      chapter: sel.chapter,
+      verse: sel.verse,
+      type: tool.activeTool === TOOLS.UNDERLINE ? 'underline' : 'highlight',
+      colour: tool.activeColour,
+      data: {
+        anchorVersion: ANCHOR_VERSION,
+        charStart: sel.charStart,
+        charEnd: sel.charEnd,
+        opacity: tool.activeTool === TOOLS.HIGHLIGHTER ? 0.35 : 1
+      }
+    })
+    undoRedo.recordCreate(localId)
   }
 }
 
@@ -407,6 +412,35 @@ useStudySession(() => passageReference.value)
 
 const verses = computed(() => passage.value?.verses ?? [])
 const secondaryVerses = computed(() => secondaryPassage.value?.verses ?? [])
+
+// ─── Derived highlight rects ─────────────────────────────────────────────────
+// Highlights and underlines are stored as verse + char range. Their pixel
+// rects are a CACHE, rebuilt from the live DOM whenever the layout key
+// changes — container width, font size, line height, translation, or the
+// comparison column opening. That is what keeps a band on its words instead
+// of on the coordinates it happened to be drawn at.
+const highlightRects = ref([])
+
+const layoutKey = computed(() =>
+  computeLayoutKey({
+    width: canvasSize.value.width,
+    fontSize: settings.fontSize,
+    lineHeight: settings.lineHeight,
+    translation: translation.value,
+    comparing: showComparison.value
+  })
+)
+
+async function rebuildHighlightRects() {
+  await nextTick()
+  highlightRects.value = resolveHighlightRects(containerRef.value, annotations.value)
+}
+
+watch(
+  [layoutKey, annotations, verses, containerRef],
+  rebuildHighlightRects,
+  { flush: 'post', immediate: true }
+)
 
 // ─── PDF Export (PRD §5.5) ────────────────────────────────────────────────────
 async function handleExportPdf() {
@@ -588,6 +622,7 @@ async function handleExportPdf() {
         <!-- Canvas overlay — only on the primary column -->
         <AnnotationCanvas
           :annotations="annotations"
+          :highlights="highlightRects"
           :width="canvasSize.width"
           :height="canvasSize.height"
           :scroll-top="scrollTopRef"

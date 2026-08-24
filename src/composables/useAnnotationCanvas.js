@@ -148,8 +148,16 @@ export function useAnnotationCanvas() {
 }
 
 /**
- * Pure hit-test helper — returns the first highlight/underline annotation
- * whose stored rect contains the point (x, y) in scroll-space, or null.
+ * Pure hit-test helper — returns the first highlight/underline whose rect
+ * contains the point (x, y) in scroll-space, or null.
+ *
+ * Accepts either shape:
+ *   • a draw-ready band from `resolveHighlightRects` ({ rect, localId, type })
+ *   • a raw annotation row with a legacy pixel rect ({ data: { rect } })
+ *
+ * The reader passes the derived bands, so an eraser tap hit-tests against
+ * where the highlight is on screen RIGHT NOW rather than where it was first
+ * drawn. The raw-row form is kept so callers holding annotations still work.
  *
  * Exported so it can be unit-tested independently of the canvas component.
  */
@@ -157,7 +165,7 @@ export function hitTestHighlight(annotations, x, y) {
   if (!Array.isArray(annotations)) return null
   return annotations.find((a) => {
     if (a.type !== 'highlight' && a.type !== 'underline') return false
-    const r = a.data?.rect
+    const r = a.rect ?? a.data?.rect
     if (!r) return false
     return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height
   }) ?? null

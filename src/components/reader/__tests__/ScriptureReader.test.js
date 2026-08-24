@@ -306,3 +306,128 @@ describe('ScriptureReader — phrase-anchored notes', () => {
     expect(editor.props('modelValue')).toBe(false)
   })
 })
+
+/**
+ * Text-anchored highlights (PRD §5.2).
+ *
+ * A highlight used to be persisted as the pixel rects it was drawn at — one
+ * row per line rect — so it drifted off its words whenever the page reflowed.
+ * It is now persisted the way a phrase note is: verse + char range, one row
+ * per selection, with the rects rebuilt from the DOM at render time.
+ */
+describe('ScriptureReader — text-anchored highlights', () => {
+  let wrapper
+  let AnnotationRepository
+
+  beforeEach(async () => {
+    setActivePinia(createPinia())
+    MockResizeObserver.mockClear()
+    toolState.activeTool = 'highlighter'
+    toolState.activeColour = '#fde68a'
+    resolveSelection.mockClear().mockReturnValue(null)
+    resolvePhraseSelection.mockClear().mockReturnValue(null)
+    AnnotationRepository = (await import('@/lib/annotationRepository')).default
+    AnnotationRepository.create.mockClear().mockResolvedValue(1)
+  })
+
+  afterEach(() => {
+    toolState.activeTool = 'none'
+    wrapper?.unmount()
+  })
+
+  async function mountReader() {
+    const { default: ScriptureReader } = await import('../ScriptureReader.vue')
+    wrapper = mount(ScriptureReader, {
+      props: { book: 'PRO', chapter: 19 },
+      global: { plugins: [createPinia()] }
+    })
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+    return wrapper
+  }
+
+  function textArea() {
+    return wrapper.find('.relative.flex.flex-1.overflow-hidden')
+  }
+
+  /** A selection that the browser reports as wrapping across two lines. */
+  const wrappedSelection = {
+    book: 'PRO',
+    chapter: 19,
+    verse: 1,
+    charStart: 9,
+    charEnd: 30,
+    rects: [
+      { x: 120, y: 40, width: 90, height: 20 },
+      { x: 0, y: 60, width: 55, height: 20 }
+    ]
+  }
+
+  it('stores the verse and char range instead of pixels', async () => {
+    resolveSelection.mockReturnValue([wrappedSelection])
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+    await flushPromises()
+
+    expect(AnnotationRepository.create).toHaveBeenCalledTimes(1)
+    const payload = AnnotationRepository.create.mock.calls[0][0]
+
+    expect(payload).toMatchObject({
+      book: 'PRO',
+      chapter: 19,
+      verse: 1,
+      type: 'highlight',
+      colour: '#fde68a'
+    })
+    expect(payload.data).toMatchObject({ charStart: 9, charEnd: 30, anchorVersion: 1 })
+  })
+
+  it('[regression] writes ONE row for a phrase that wraps across two lines', async () => {
+    resolveSelection.mockReturnValue([wrappedSelection])
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+    await flushPromises()
+
+    // The old implementation looped sel.rects and wrote a row per line.
+    expect(AnnotationRepository.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('[regression] never persists a pixel rect for a new highlight', async () => {
+    resolveSelection.mockReturnValue([wrappedSelection])
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+    await flushPromises()
+
+    expect(AnnotationRepository.create.mock.calls[0][0].data.rect).toBeUndefined()
+  })
+
+  it('writes one anchored row per verse when a drag crosses a verse boundary', async () => {
+    resolveSelection.mockReturnValue([
+      { ...wrappedSelection, verse: 1, charStart: 20, charEnd: 43, rects: [{ x: 0, y: 0, width: 10, height: 20 }] },
+      { ...wrappedSelection, verse: 2, charStart: 0, charEnd: 12, rects: [{ x: 0, y: 20, width: 10, height: 20 }] }
+    ])
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+    await flushPromises()
+
+    expect(AnnotationRepository.create).toHaveBeenCalledTimes(2)
+    expect(AnnotationRepository.create.mock.calls.map((c) => c[0].verse)).toEqual([1, 2])
+  })
+
+  it('records the underline tool as an underline annotation', async () => {
+    toolState.activeTool = 'underline'
+    resolveSelection.mockReturnValue([wrappedSelection])
+
+    await mountReader()
+    await textArea().trigger('pointerup')
+    await flushPromises()
+
+    const payload = AnnotationRepository.create.mock.calls[0][0]
+    expect(payload.type).toBe('underline')
+    expect(payload.data.opacity).toBe(1)
+  })
+})

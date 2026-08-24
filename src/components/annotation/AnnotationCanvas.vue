@@ -5,6 +5,11 @@ import { useAnnotationCanvas, hitTestHighlight } from '@/composables/useAnnotati
 
 const props = defineProps({
   annotations: { type: Array, required: true },
+  // Highlights / underlines already flattened to draw-ready rects by
+  // `resolveHighlightRects` in the reader. They are derived from each
+  // annotation's verse + char range on every layout change, so this
+  // component never reads a stored pixel rect.
+  highlights: { type: Array, default: () => [] },
   width: { type: Number, required: true },
   height: { type: Number, required: true },
   // FIX: receives the scroll position of the text container so the canvas
@@ -31,7 +36,7 @@ function onBackgroundClick(konvaEvt) {
   // Add scrollTop back because stored rect coords are in full-scroll space
   const y = coords.clientY - rect.top + props.scrollTop
 
-  const target = hitTestHighlight(props.annotations, x, y)
+  const target = hitTestHighlight(props.highlights, x, y)
   if (target) emit('erase', target.localId)
 }
 
@@ -42,9 +47,6 @@ const {
   liveShapePoints, startShape, extendShape, endShape
 } = useAnnotationCanvas()
 
-const highlightAnnotations = computed(() =>
-  props.annotations.filter((a) => a.type === 'highlight' || a.type === 'underline')
-)
 const drawingAnnotations = computed(() =>
   props.annotations.filter((a) => a.type === 'pen' || a.type === 'shape')
 )
@@ -122,18 +124,19 @@ function pointsToFlatArray(points) {
       :style="{ transform: `translateY(-${scrollTop}px)`, height: `${height}px`, pointerEvents: 'none' }"
     >
       <div
-        v-for="a in highlightAnnotations"
-        :key="a.localId"
+        v-for="band in highlights"
+        :key="band.key"
         class="absolute rounded-[2px]"
+        :data-annotation-id="band.localId"
         :style="{
-          left: `${a.data.rect?.x ?? 0}px`,
-          top: `${a.data.rect?.y ?? 0}px`,
-          width: `${a.data.rect?.width ?? 0}px`,
-          height: a.type === 'underline' ? '2px' : `${a.data.rect?.height ?? 0}px`,
-          background: a.type === 'highlight' ? a.colour : 'transparent',
-          borderBottom: a.type === 'underline' ? `2px solid ${a.colour}` : 'none',
-          opacity: a.type === 'highlight' ? (a.data.opacity ?? 0.35) : 1,
-          marginTop: a.type === 'underline' ? `${(a.data.rect?.height ?? 0) - 2}px` : '0'
+          left: `${band.rect.x}px`,
+          top: `${band.rect.y}px`,
+          width: `${band.rect.width}px`,
+          height: band.type === 'underline' ? '2px' : `${band.rect.height}px`,
+          background: band.type === 'highlight' ? band.colour : 'transparent',
+          borderBottom: band.type === 'underline' ? `2px solid ${band.colour}` : 'none',
+          opacity: band.type === 'highlight' ? band.opacity : 1,
+          marginTop: band.type === 'underline' ? `${band.rect.height - 2}px` : '0'
         }"
       />
     </div>
